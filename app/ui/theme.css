@@ -1,0 +1,34 @@
+@media screen {
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --canvas: #17131e;
+    --surface: #221c2b;
+    --raised: #2c2435;
+    --ink: #f7eef8;
+    --muted: #cabed1;
+    --border: #42354b;
+    --field-border: #685773;
+    --accent: #a15c8a;
+    --accent-hover: #8e4a78;
+    --accent-ink: #f0bcdf;
+    --accent-soft: #432d49;
+    --violet-ink: #d7c8ff;
+    --violet-soft: #392f56;
+    --good-ink: #a8dfc8;
+    --good-soft: #253f36;
+    --warn-ink: #f0ce95;
+    --warn-soft: #463624;
+    --bad-ink: #f4aec1;
+    --bad-soft: #4a2b3a;
+    --focus: #e5a8d1;
+    --sidebar: #211829;
+    --sidebar-end: #191321;
+    --sidebar-active: #49314e;
+    --shadow: 0 7px 21px #110d1760;
+    --backdrop: #100b16b3;
+    --chart-fill: #ad87bb;
+    --chart-today: #efb7d5;
+    --chart-empty: #66506d;
+  }
+  
+}

@@ -1,0 +1,7 @@
+{
+  "name": "bya-service-mobile",
+  "private": true,
+  "type": "module",
+  "version": "2.0.0",
+  "scripts": { "test": "node --test" }
+}
