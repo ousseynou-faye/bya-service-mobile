@@ -1,0 +1,16 @@
+{
+  "id": "./",
+  "name": "Bya Service — Gestion boutique",
+  "short_name": "Bya Service",
+  "description": "Gestion de boutique sur cet appareil",
+  "lang": "fr-SN",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "theme_color": "#291f35",
+  "background_color": "#f7f5f8",
+  "icons": [
+    {"src":"./assets/icon-192.png", "sizes":"192x192", "type":"image/png", "purpose":"any maskable"},
+    {"src":"./assets/icon-512.png", "sizes":"512x512", "type":"image/png", "purpose":"any maskable"}
+  ]
+}

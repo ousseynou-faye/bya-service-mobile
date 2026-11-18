@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#291f35">
+  <link rel="manifest" href="./manifest.webmanifest">
+  <link rel="apple-touch-icon" href="./assets/icon-192.png">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <title>Bya Service — Gestion boutique</title>
+  <link rel="icon" href="./assets/favicon.svg" type="image/svg+xml">
+  <script src="./ui/theme.js"></script>
+  <link rel="stylesheet" href="./ui/styles.css">
+  <link rel="stylesheet" href="./ui/home.css">
+  <link rel="stylesheet" href="./ui/theme.css">
+  <script type="module" src="./src/start.js"></script>
+</head>
+<body>
+  <a class="skip" href="#main">Aller au contenu</a>
+  <div class="shell">
+    <aside class="sidebar" id="sidebar">
+      <a href="#dashboard" class="brand">
+        <img src="./assets/favicon.svg" alt="" width="44" height="44">
+        <span><strong id="brand-name">Bya Service</strong><small>Gestion boutique</small></span>
+      </a>
+      <nav id="navigation" aria-label="Navigation principale"></nav>
+      <div class="sidebar-bottom">
+        <div id="settings-link"></div>
+        <div class="local"><span class="local-dot"></span><span id="local-mode">Poste local</span></div>
+      </div>
+    </aside>
+    <button class="nav-shade" id="nav-shade" type="button" aria-label="Fermer le menu" hidden></button>
+    <div class="work-area">
+      <header class="topbar">
+        <div class="top-left">
+          <button class="icon-button menu-toggle" id="toggle-menu" type="button" aria-controls="sidebar" aria-expanded="false" aria-label="Ouvrir le menu">
+            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+          </button>
+          <div class="top-context"><span>Gestion boutique</span><span aria-hidden="true">/</span><strong id="section-title">Vue d’ensemble</strong></div>
+        </div>
+        <div class="top-right">
+          <span id="demo-mark" class="badge warn" hidden>Données fictives</span>
+          <span id="today" class="date-pill"></span>
+          <label class="theme-control">
+            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8"/><path d="M12 4a8 8 0 0 1 0 16Z" fill="currentColor" stroke="none"/></svg>
+            <select id="theme" aria-label="Thème d’affichage">
+              <option value="system">Système</option>
+              <option value="light">Clair</option>
+              <option value="dark">Sombre</option>
+            </select>
+          </label>
+        </div>
+      </header>
+      <main id="main" tabindex="-1"><div class="initial">Ouverture de la boutique…</div></main>
+      <footer id="footer"></footer><p id="offline-status" class="offline-status" role="status"></p>
+    </div>
+  </div>
+  <nav class="mobile-nav" aria-label="Accès rapides">
+    <div id="mobile-pages"></div>
+    <button id="mobile-menu" type="button" aria-controls="sidebar" aria-expanded="false">
+      <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+      <span>Menu</span>
+    </button>
+  </nav>
+  <dialog id="dialog" aria-labelledby="dialog-title"></dialog>
+  <div id="toast" class="toast" role="status" hidden></div>
+  <noscript>Activez JavaScript dans votre navigateur pour utiliser Bya Service.</noscript>
+</body>
+</html>
+
