@@ -1,4 +1,4 @@
-export const VERSION = "2.1.0";
+export const VERSION = "2.2.0";
 export const PAYMENTS = ["Espèces", "Wave", "Orange Money", "Carte", "Virement"];
 export const CATEGORIES = ["Savons", "Soins du visage", "Soins du corps", "Soins des pieds", "Accessoires", "Packs", "Autres"];
 export const MAX_PRICE = 10_000_000;
@@ -10,7 +10,16 @@ export const offset = (day, days) => new Date(Date.parse(day) + days * DAY).toIS
 
 export function blank() {
   return {schema: 1, settings: {shop: "Bya Service", phone: "", address: ""},
-    products: [], contacts: [], operations: [], movements: [], expenses: []};
+    products: [], contacts: [], operations: [], movements: [], expenses: [], sessions: [], withdrawals: []};
+}
+
+export function writableDay(state, day) {
+  if (state.sessions?.some(s => s.day === day && s.closed)) throw new Error("La caisse de cette date est déjà clôturée.");
+}
+
+export function payment(value) {
+  if (!PAYMENTS.includes(value)) throw new Error("Sélectionne le moyen de paiement.");
+  return value;
 }
 
 export function number(kind, id) {
@@ -93,7 +102,7 @@ export function saveSettings(state, data) {
   return state.settings;
 }
 
-function attempt(items, kind, data) {
+export function attempt(items, kind, data) {
   const request_key = text(data, "request_key", "Identifiant", 64, true);
   if (!/^[A-Za-z0-9-]{16,64}$/.test(request_key)) throw new Error("Identifiant d’opération invalide.");
   const signature = JSON.stringify([kind, data], (_, value) => value && typeof value === "object" && !Array.isArray(value)
@@ -125,8 +134,8 @@ export function addOperation(state, kind, data) {
   if (previous) return detail(state, previous.id);
   const day = operationDay(data);
   const note = text(data, "note", "Note ou motif", 300, kind === "adjust");
-  const method = kind === "sale" ? data.method : "";
-  if (kind === "sale" && !PAYMENTS.includes(method)) throw new Error("Choisis le moyen de paiement reçu.");
+  if (kind !== "adjust") writableDay(state, day);
+  const method = kind === "adjust" ? "" : payment(data.method);
   const contactKind = kind === "sale" ? "client" : "supplier";
   const contact = data.contact_id && kind !== "adjust"
     ? find(state.contacts.filter(c => c.kind === contactKind), data.contact_id, "Contact introuvable.") : null;
@@ -173,6 +182,7 @@ export function cancelSale(state, data, id) {
   const operation = find(state.operations, id, "Vente introuvable.");
   if (operation.kind !== "sale") throw new Error("Seuls les tickets de vente peuvent être annulés.");
   if (operation.canceled_at) return detail(state, id);
+  writableDay(state, today());
   const items = operation.lines.map(line => {
     const product = find(state.products, line.product_id, "Produit introuvable.");
     if (product.stock + line.quantity > MAX_STOCK) throw new Error("Stock maximal dépassé.");
@@ -193,7 +203,9 @@ export function addExpense(state, data) {
   const {request_key, signature, previous} = attempt(state.expenses, "expense", data);
   if (previous) return {id: previous.id};
   const id = nextId(state.expenses);
-  state.expenses.push({id, request_key, signature, day: operationDay(data),
+  const day = operationDay(data);
+  writableDay(state, day);
+  state.expenses.push({id, request_key, signature, day, method: payment(data.method),
     category: text(data, "category", "Catégorie", 60, true), note: text(data, "note", "Libellé", 300, true),
     amount: integer(data.amount, "Montant", 1), canceled_at: null});
   return {id};
@@ -201,6 +213,7 @@ export function addExpense(state, data) {
 
 export function cancelExpense(state, id) {
   const expense = find(state.expenses, id, "Dépense introuvable.");
+  if (!expense.canceled_at) writableDay(state, today());
   expense.canceled_at ??= new Date().toISOString();
   return {ok: true};
 }

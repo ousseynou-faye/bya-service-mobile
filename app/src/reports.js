@@ -78,20 +78,26 @@ export function report(state, start = offset(today(), -29), end = today()) {
       best.set(line.product_id, row);
     }
   }
-  for (const {id, day, category, note, amount, canceled_at} of expenses) {
-    journal.push({kind: "expense", id, day, number: number("expense", id), party: category, method: "", note,
+  for (const {id, day, category, note, amount, canceled_at, method} of expenses) {
+    journal.push({kind: "expense", id, day, number: number("expense", id), party: category, method: method || "", note,
       amount, status: canceled_at ? "canceled" : "valid", flow: canceled_at ? 0 : -amount});
     if (!canceled_at) {
       expenses_total += amount;
       categories.set(category, (categories.get(category) ?? 0) + amount);
     }
   }
+  let withdrawals_total = 0;
+  for (const w of (state.withdrawals || []).filter(inRange)) {
+    withdrawals_total += w.amount;
+    journal.push({kind: "withdrawal", id: w.id, day: w.day, number: "R-" + w.id, party: "", method: w.method,
+      note: w.note, amount: w.amount, status: "valid", flow: -w.amount});
+  }
   const gross = BigInt(revenue) * 100n - cost;
   const top = [...best.values()].sort((a, b) => b.quantity - a.quantity || alphabetical(a, b)).slice(0, 5);
   const expense_categories = [...categories].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], "fr"));
   return {revenue, discounts, units_sold, gross_sales: revenue + discounts,
     gross_margin: Number(gross) / 100, cost_of_sales: Number(cost) / 100,
-    expenses_total, purchases_total, net_flow: revenue - expenses_total - purchases_total,
+    expenses_total, purchases_total, withdrawals_total, net_flow: revenue - expenses_total - purchases_total - withdrawals_total,
     result: Number(gross - BigInt(expenses_total) * 100n) / 100,
     journal: journal.sort(recent), expense_categories, sale_count, sales, purchases, expenses, series, channels, top};
 }

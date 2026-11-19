@@ -5,6 +5,64 @@ import vm from "node:vm";
 import {activateProduct, addExpense, addOperation, blank, cancelExpense, cancelSale, saveProduct, today} from "../app/src/model.js";
 import {bootstrap, productHistory, replenishment, report} from "../app/src/reports.js";
 import {backupData, backupFile} from "../app/src/backup.js";
+import {changeDrawer, drawer} from "../app/src/drawer.js";
+
+test("Clôture avec écart, paiement Wave et conservation de la journée", () => {
+  const {state, item} = fixture();
+  const day = today();
+  changeDrawer(state, "open", {day, opening: 10000});
+  for (const [method, price] of [["Espèces", 25000], ["Wave", 8000]]) {
+    saveProduct(state, {...product, price}, item.id);
+    addOperation(state, "sale", {request_key: "vente-test-" + price + "-01", method,
+      lines: [{product_id: item.id, quantity: 1}]});
+  }
+  addExpense(state, {request_key: "transport-test-001", method: "Espèces", amount: 3000, category: "Transport", note: "Livraison"});
+  const view = drawer(state, day);
+  assert.equal(view.expected, 32000);
+  assert.equal(view.channels.find(c => c.method === "Wave").sales, 8000);
+  const close = {day, expected: 32000, counted: 31500};
+  assert.throws(() => changeDrawer(state, "close", {...close, expected: 31000}), /changé/);
+  assert.throws(() => changeDrawer(state, "close", close), /écart/);
+  const result = changeDrawer(state, "close", {...close, reason: "Erreur de monnaie"});
+  assert.equal(result.closed.gap, -500);
+  assert.throws(() => cancelExpense(state, state.expenses[0].id), /clôturée/);
+  assert.deepEqual(backupData(JSON.parse(backupFile(state))), state);
+  const corrupt = JSON.parse(backupFile(state));
+  corrupt.data.sessions[0].closed.expected++;
+  assert.throws(() => backupData(corrupt), /incohérente/);
+});
+
+test("Une annulation ultérieure est datée du remboursement et conserve la clôture précédente", () => {
+  const {state, item} = fixture();
+  const day = "2025-01-10";
+  const sale = addOperation(state, "sale", {day, request_key: "vente-passee-00001", method: "Espèces",
+    lines: [{product_id: item.id, quantity: 1}]});
+  changeDrawer(state, "open", {day, opening: 5000});
+  changeDrawer(state, "close", {day, expected: 7000, counted: 7000});
+  cancelSale(state, {reason: "Remboursement en espèces"}, sale.id);
+  assert.equal(drawer(state, day).expected, 7000);
+  assert.equal(drawer(state).channels[0].reversals, -2000);
+  assert.deepEqual(backupData(JSON.parse(backupFile(state))), state);
+});
+
+test("Classement des anciennes sorties et retrait unique après un réessai", () => {
+  const {state} = fixture();
+  const day = today();
+  delete state.sessions;
+  delete state.withdrawals;
+  state.operations[0].method = "";
+  const restored = backupData(JSON.parse(backupFile(state)));
+  changeDrawer(restored, "open", {day, opening: 10000});
+  assert.throws(() => changeDrawer(restored, "close", {day, counted: 10000, expected: 10000}), /anciennes/);
+  changeDrawer(restored, "classify", {day, kind:"purchase", id:1, method:"Espèces"});
+  const withdrawal = {day, request_key:"retrait-boutique-001", method:"Espèces", amount:1500, note:"Retrait personnel"};
+  changeDrawer(restored, "withdraw", withdrawal);
+  changeDrawer(restored, "withdraw", withdrawal);
+  assert.equal(drawer(restored, day).expected, 4500);
+  assert.equal(report(restored).result, 0);
+  assert.equal(report(restored).net_flow, -5500);
+  assert.deepEqual(backupData(JSON.parse(backupFile(restored))), restored);
+});
 
 const product = {sku: "S001", name: "Savon", category: "Savons", price: 2000, threshold: 3};
 test("Le comptage rejette un stock périmé et conserve sa trace après restauration", () => {
@@ -22,7 +80,7 @@ test("Le bilan rapproche remises, coût vendu, dépenses et variation de trésor
   const {state, item} = fixture();
   const sale = addOperation(state, "sale", {request_key: "vente-bilan-000001", method: "Wave", discount: 500,
     lines: [{product_id: item.id, quantity: 2}]});
-  addExpense(state, {request_key: "frais-bilan-000001", category: "Transport", amount: 300, note: "Livraison"});
+  addExpense(state, {request_key: "frais-bilan-000001", method: "Espèces", category: "Transport", amount: 300, note: "Livraison"});
   const r = report(state);
   assert.deepEqual([r.gross_sales, r.discounts, r.revenue, r.units_sold, r.cost_of_sales, r.result, r.net_flow],
     [4000, 500, 3500, 2, 1600, 1600, -800]);
@@ -33,7 +91,7 @@ test("Le bilan rapproche remises, coût vendu, dépenses et variation de trésor
 function fixture() {
   const state = blank();
   const item = saveProduct(state, product);
-  addOperation(state, "purchase", {request_key: "achat-0000000000000", lines: [{product_id: item.id, quantity: 5, unit: 800}]});
+  addOperation(state, "purchase", {request_key: "achat-0000000000000", method: "Wave", lines: [{product_id: item.id, quantity: 5, unit: 800}]});
   return {state, item};
 }
 
@@ -77,7 +135,7 @@ test("Une vente invalide ne crée ni ticket ni mouvement partiel", () => {
 
 test("Une sauvegarde relit le journal et rejette un stock falsifié", () => {
   const {state, item} = fixture();
-  const expense = addExpense(state, {request_key: "depense-000000000000", category: "Transport", note: "Livraison", amount: 500});
+  const expense = addExpense(state, {request_key: "depense-000000000000", method: "Espèces", category: "Transport", note: "Livraison", amount: 500});
   assert.equal(report(state, today(), today()).expenses_total, 500);
   cancelExpense(state, expense.id);
   assert.equal(report(state).expenses_total, 0);
@@ -102,7 +160,7 @@ test("Le cache hors connexion couvre les fichiers et résout une publication en 
   let installing;
   handlers.get("install")({waitUntil: promise => { installing = promise; }});
   await installing;
-  assert.equal(cached.size, 17);
+  assert.equal(cached.size, 18);
   let response;
   handlers.get("fetch")({request: {url: scope, method: "GET", mode: "navigate"}, respondWith: p => { response = p; }});
   assert.match((await response).toString("utf8"), /Bya Service/);

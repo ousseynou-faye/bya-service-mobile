@@ -2,10 +2,12 @@ import {activateProduct, addExpense, addOperation, cancelExpense, cancelSale, de
   saveContact, saveProduct, saveSettings, today} from "./model.js";
 import {bootstrap, movements, productHistory, replenishment, report} from "./reports.js";
 import {backupData, backupFile} from "./backup.js";
+import {changeDrawer, drawer} from "./drawer.js";
 import {restoreState, transact} from "./storage.js";
 
 function read(state, url) {
   const {pathname, searchParams} = url;
+  if (pathname === "/api/drawer") return drawer(state, searchParams.get("day") || today());
   if (pathname === "/api/bootstrap") return bootstrap(state);
   if (pathname === "/api/replenishment") return replenishment(state);
   if (pathname === "/api/movements") return movements(state, Number(searchParams.get("product_id")));
@@ -21,6 +23,7 @@ function write(state, pathname, data) {
   const [segment, key, action] = pathname.slice(5).split("/");
   const id = Number(key);
   switch (segment) {
+    case "drawer": return changeDrawer(state, key, data);
     case "products": return action === "active" ? activateProduct(state, data, id) : saveProduct(state, data, id);
     case "contacts": return saveContact(state, data, id);
     case "settings": return saveSettings(state, data);
@@ -77,7 +80,7 @@ export async function download(path) {
       const {searchParams: params} = url;
       const data = await transact(false, state => read(state, new URL("/api/report?" + params, location.origin)));
       const kind = params.get("kind"), status = params.get("status");
-      const labels = {sale: "Vente", purchase: "Achat", expense: "Dépense"};
+      const labels = {sale: "Vente", purchase: "Achat", expense: "Dépense", withdrawal: "Retrait"};
       const rows = data.journal.filter(row => (!kind || kind === row.kind) && (!status || status === row.status));
       content = csv([["Date", "Type", "Référence", "Contact ou catégorie", "Paiement", "Montant (FCFA)", "État", "Libellé", "Flux (FCFA)"],
         ...rows.map(r => [r.day, labels[r.kind], r.number, r.party, r.method, r.amount,
