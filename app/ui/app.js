@@ -32,6 +32,7 @@ const sections = {
 const state = {
   page: "dashboard", view: 0, data: null, periods: {},
   productQuery: "", category: "", productStatus: "active",
+  ticketQuery: "", cashSales: [],
   stockFilter: "", contactKind: "client", replenishment: [],
   finance: {kind: "", status: "", report: null, preset: "month"}
 };
@@ -100,8 +101,9 @@ function empty(title, description = "") {
 }
 
 function heading(title, description, action = "") {
-  return '<div class="page-heading"><div><h1>' + esc(title) + '</h1><p>' +
-    esc(description) + '</p></div>' + (action ? '<div class="actions">' + action + '</div>' : '') + '</div>';
+  return '<div class="page-heading"><div class="page-intro"><span class="section-symbol">' +
+    icon(sections[state.page][1]) + '</span><div><h1>' + esc(title) + '</h1><p>' +
+    esc(description) + '</p></div></div>' + (action ? '<div class="actions">' + action + '</div>' : '') + '</div>';
 }
 
 function titlebar(title, description = "", action = "") {
@@ -313,13 +315,25 @@ function dateToolbar(key) {
     '</form>';
 }
 
+function matchingTickets() {
+  const query = state.ticketQuery.trim().toLocaleLowerCase("fr");
+  const matches = state.cashSales.filter(sale => [sale.number, sale.contact_name || "Client comptoir", sale.method]
+    .some(value => value.toLocaleLowerCase("fr").includes(query)));
+  return query && !matches.length ? empty("Aucun ticket correspondant.", "Essayez un numéro, un client ou un moyen de paiement.") : recentSales(matches);
+}
+
 function renderCash(report) {
+  state.cashSales = report.sales;
   return heading("Caisse", "Enregistrez les ventes et retrouvez les tickets par date.",
     button("Nouvelle vente", "new-sale", {style: "primary", icon: "plus"})) +
     '<div class="stats">' + stat("Ventes encaissées", fcfa(report.revenue), "Pour la période affichée", "wallet") +
-    stat("Tickets validés", report.sale_count, "Hors annulations", "receipt", "green") + '</div>' +
+    stat("Tickets validés", report.sale_count, "Hors annulations", "receipt", "green") +
+    stat("Articles vendus", number.format(report.units_sold), "Quantités des tickets validés", "box", "violet") +
+    stat("Panier moyen", report.sale_count ? fcfa(report.revenue / report.sale_count) : "—", "Montant encaissé par ticket validé", "wallet", "gold") + '</div>' +
     '<section class="panel table-panel">' + titlebar("Historique des ventes") + dateToolbar("cash") +
-    recentSales(report.sales) + '</section>';
+    '<div class="toolbar">' + field("Rechercher un ticket", input("ticket-search", state.ticketQuery,
+      'id="ticket-search" type="search" placeholder="Ticket, client ou paiement"')) +
+    '</div><div id="ticket-results">' + matchingTickets() + '</div></section>';
 }
 
 function productTone(p) {
@@ -467,10 +481,13 @@ function renderStock(movements, report) {
     stat("Valeur du stock", fcfa(stockValue / 100), "Sur la base du coût moyen", "wallet", "green") +
     stat("Alertes de stock", stockAlerts().length, "Au seuil ou en rupture", "alert", "gold") + '</div>' +
     '<section class="panel table-panel">' + titlebar("État des stocks") +
-    table(["Produit", "Quantité", "Seuil", "Valeur au coût", "État", "Détail"], products, p =>
+    table(["Produit", "Quantité", "Seuil", "Valeur au coût", "État", "Actions"],
+      [...products].sort((a, b) => (a.stock === 0 ? 0 : a.stock <= a.threshold ? 1 : 2) -
+        (b.stock === 0 ? 0 : b.stock <= b.threshold ? 1 : 2)), p =>
       td(productName(p)) + td(number.format(p.stock)) + td(number.format(p.threshold)) +
       td(esc(fcfa(p.average * p.stock / 100)), "numeric") +
-      td(productStatus(p)) + td(button("Fiche", "product-history", {id: p.id, small: true, style: "subtle"})),
+      td(productStatus(p)) + td('<div class="actions">' + button("Compter", "count-stock", {id: p.id, small: true}) +
+        button("Fiche", "product-history", {id: p.id, small: true, style: "subtle"}) + '</div>'),
     "Aucun produit actif.") + '</section>' +
     '<section class="panel table-panel">' + titlebar("Achats enregistrés") + dateToolbar("stock") +
     table(["Référence", "Date", "Fournisseur", "Montant", "Actions"], report.purchases, item =>
@@ -554,9 +571,12 @@ function renderReports(report) {
     '<div class="stats">' + stat("Ventes encaissées", fcfa(report.revenue), report.sale_count + " ticket(s) validé(s)", "wallet") +
     stat("Dépenses d’exploitation", fcfa(report.expenses_total), "Transport, emballage et autres frais", "receipt", "gold") +
     stat("Achats de marchandises", fcfa(report.purchases_total), "Commandes enregistrées sur la période", "box", "violet") +
-    stat("Flux net estimé", fcfa(report.net_flow), "Ventes − achats enregistrés − frais validés", "trend", "green") + '</div>' +
+    stat("Flux net de la période", fcfa(report.net_flow), "Encaissements moins achats et frais enregistrés", "trend", report.net_flow < 0 ? "negative" : "green") + '</div>' +
     '<div class="split finance-breakdown"><section class="panel">' + titlebar("Résultat d’exploitation", "Calculé à partir du coût des produits vendus") +
-    '<dl class="finance-summary"><div><dt>Coût des produits vendus</dt><dd>' + esc(fcfa(report.cost_of_sales)) + '</dd></div>' +
+    '<dl class="finance-summary"><div><dt>Ventes avant remise</dt><dd>' + esc(fcfa(report.gross_sales)) + '</dd></div>' +
+    '<div><dt>Remises accordées</dt><dd>' + esc(fcfa(report.discounts)) + '</dd></div>' +
+    '<div><dt>Ventes après remise</dt><dd>' + esc(fcfa(report.revenue)) + '</dd></div>' +
+    '<div><dt>Coût des produits vendus</dt><dd>' + esc(fcfa(report.cost_of_sales)) + '</dd></div>' +
     '<div><dt>Marge brute</dt><dd>' + esc(fcfa(report.gross_margin)) + '</dd></div>' +
     '<div><dt>Frais d’exploitation</dt><dd>' + esc(fcfa(report.expenses_total)) + '</dd></div>' +
     '<div class="finance-total"><dt>Résultat estimé</dt><dd>' + esc(fcfa(report.result)) + '</dd></div></dl></section>' +
@@ -996,7 +1016,42 @@ function cancelSale(id) {
     after: receipt});
 }
 
+function countStock(id) {
+  const product = activeProducts().find(item => item.id === id);
+  if (!product) throw new Error("Ce produit est indisponible. Actualisez le catalogue.");
+  const expected = product.stock;
+  const request_key = requestKey();
+  const form = dialogForm({
+    title: "Compter le stock",
+    fields: '<div class="field full count-product"><strong>' + esc(product.name) + '</strong><span>' +
+      esc(product.sku) + ' · Stock enregistré : ' + number.format(expected) + '</span></div>' +
+      field("Quantité comptée", input("counted", "", 'type="number" inputmode="numeric" min="0" max="100000000" step="1" required')) +
+      '<output class="count-gap" aria-live="polite"></output>' +
+      field("Note de comptage", '<textarea name="note" maxlength="200" placeholder="Ex. vérification du rayon"></textarea>', true),
+    label: "Valider le comptage",
+    submit: async data => {
+      const counted = Number(data.get("counted"));
+      const quantity = counted - expected;
+      if (!quantity) {
+        const current = await api("/api/products/" + id + "/history");
+        if (current.product.stock !== expected) throw new Error("Le stock a changé. Actualisez la page et recommencez.");
+        return false;
+      }
+      await api("/api/operations/adjust", {request_key, lines: [{product_id: id, quantity, expected_stock: expected}],
+        note: ("Inventaire physique " + expected + " → " + counted + ". " + data.get("note")).trim()});
+      return true;
+    },
+    message: changed => changed ? "Écart enregistré dans les mouvements de stock." : "Quantité confirmée. Stock conforme."
+  });
+  form.elements.counted.addEventListener("input", () => {
+    const count = form.elements.counted;
+    const gap = count.valueAsNumber - expected;
+    form.querySelector("output").textContent = count.validity.valid ? "Écart : " + (gap > 0 ? "+" : "") + number.format(gap) : "";
+  });
+}
+
 const commands = {
+  "count-stock": countStock,
   "new-product": () => editProduct(),
   "edit-product": editProduct, "toggle-product": toggleProduct,
   "product-history": showProductHistory, "product-movements": openProductMovements,
@@ -1060,6 +1115,10 @@ document.addEventListener("keydown", event => {
 });
 
 main.addEventListener("input", event => {
+  if (event.target.id === "ticket-search") {
+    state.ticketQuery = event.target.value;
+    document.getElementById("ticket-results").innerHTML = matchingTickets();
+  }
   if (event.target.id === "product-search") {
     state.productQuery = event.target.value;
     document.getElementById("product-results").innerHTML = productRows();

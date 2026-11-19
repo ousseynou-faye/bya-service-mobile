@@ -7,6 +7,29 @@ import {bootstrap, productHistory, replenishment, report} from "../app/src/repor
 import {backupData, backupFile} from "../app/src/backup.js";
 
 const product = {sku: "S001", name: "Savon", category: "Savons", price: 2000, threshold: 3};
+test("Le comptage rejette un stock périmé et conserve sa trace après restauration", () => {
+  const {state, item} = fixture();
+  const data = {request_key: "comptage-0000000001", note: "Inventaire physique", lines: [
+    {product_id: item.id, expected_stock: 5, quantity: -2}]};
+  addOperation(state, "adjust", data);
+  addOperation(state, "adjust", data);
+  assert.equal(item.stock, 3);
+  assert.throws(() => addOperation(state, "adjust", {...data, request_key: "comptage-0000000002"}), /stock a changé/);
+  assert.deepEqual(backupData(JSON.parse(backupFile(state))), state);
+});
+
+test("Le bilan rapproche remises, coût vendu, dépenses et variation de trésorerie", () => {
+  const {state, item} = fixture();
+  const sale = addOperation(state, "sale", {request_key: "vente-bilan-000001", method: "Wave", discount: 500,
+    lines: [{product_id: item.id, quantity: 2}]});
+  addExpense(state, {request_key: "frais-bilan-000001", category: "Transport", amount: 300, note: "Livraison"});
+  const r = report(state);
+  assert.deepEqual([r.gross_sales, r.discounts, r.revenue, r.units_sold, r.cost_of_sales, r.result, r.net_flow],
+    [4000, 500, 3500, 2, 1600, 1600, -800]);
+  cancelSale(state, {reason: "Retour"}, sale.id);
+  const after = report(state);
+  assert.deepEqual([after.gross_sales, after.discounts, after.units_sold, after.result, after.net_flow], [0, 0, 0, -300, -4300]);
+});
 function fixture() {
   const state = blank();
   const item = saveProduct(state, product);

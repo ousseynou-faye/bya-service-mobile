@@ -41,7 +41,7 @@ export function backupData(raw) {
     let subtotal = 0;
     for (const line of o.lines) {
       require(line && knownProducts.has(line.product_id) && string(line.name, 120) && string(line.sku, 40) &&
-        bounded(line.quantity, o.kind === "adjust" ? -MAX_QUANTITY : 1, MAX_QUANTITY) && line.quantity !== 0 &&
+        bounded(line.quantity, o.kind === "adjust" ? -MAX_STOCK : 1, o.kind === "adjust" ? MAX_STOCK : MAX_QUANTITY) && line.quantity !== 0 &&
         bounded(line.unit, 0, MAX_PRICE) && bounded(line.cost, 0, MAX_PRICE * 100));
       const key = `${o.id}/${line.product_id}/${o.kind}`;
       require(!expected.has(key));

@@ -1,4 +1,4 @@
-export const VERSION = "2.0.0";
+export const VERSION = "2.1.0";
 export const PAYMENTS = ["Espèces", "Wave", "Orange Money", "Carte", "Virement"];
 export const CATEGORIES = ["Savons", "Soins du visage", "Soins du corps", "Soins des pieds", "Accessoires", "Packs", "Autres"];
 export const MAX_PRICE = 10_000_000;
@@ -138,7 +138,11 @@ export function addOperation(state, kind, data) {
     const product = find(state.products.filter(p => p.active), input.product_id, "Produit introuvable ou archivé.");
     if (seen.has(product.id)) throw new Error("Regroupe les quantités d’un même produit sur une ligne.");
     seen.add(product.id);
-    const quantity = integer(input.quantity, "Quantité", kind === "adjust" ? -MAX_QUANTITY : 1, MAX_QUANTITY);
+    if (kind === "adjust" && input.expected_stock !== undefined && input.expected_stock !== product.stock) {
+      throw new Error("Le stock a changé depuis le comptage. Ferme la fiche, actualise le stock et recompte le produit.");
+    }
+    const limit = kind === "adjust" && input.expected_stock !== undefined ? MAX_STOCK : MAX_QUANTITY;
+    const quantity = integer(input.quantity, "Quantité", kind === "adjust" ? -limit : 1, limit);
     if (!quantity) throw new Error("La variation doit être différente de zéro.");
     const delta = kind === "sale" ? -quantity : quantity;
     if (product.stock + delta < 0) throw new Error(`Stock insuffisant pour « ${product.name} ».`);
