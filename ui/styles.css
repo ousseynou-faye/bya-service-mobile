@@ -425,6 +425,11 @@ tbody tr:is(:hover, :focus-within) { background: var(--raised); }
 }
 .field textarea { min-height: 76px; resize: vertical; }
 .form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.offer-preview { display: grid; gap: 14px; }
+.offer-preview textarea { line-height: 1.5; resize: vertical; }
+.offer-recipient { margin: 0; font-weight: 650; overflow-wrap: anywhere; }
+.offer-preview [aria-disabled="true"] { opacity: .5; }
+.dialog-body .form-grid[hidden], .offer-preview[hidden], .form-grid .field[hidden] { display: none; }
 .field.full, .form-error, .form-footer { grid-column: 1 / -1; }
 .form-footer { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 9px; }
 .form-error { padding: 9px 12px; border-radius: 8px; color: var(--bad-ink); background: var(--bad-soft); }

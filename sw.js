@@ -1,10 +1,10 @@
 const scope = self.registration.scope;
 const prefix = `bya-mobile:${scope}:`;
-const cacheName = prefix + "2.4.0";
+const cacheName = prefix + "2.5.0";
 const landing = new URL("index.html", scope).href;
 const files = ["index.html", "manifest.webmanifest", "assets/accueil.webp", "assets/favicon.svg",
   "assets/icon-192.png", "assets/icon-512.png", "ui/app.js", "ui/theme.js", "ui/styles.css", "ui/home.css",
-  "ui/theme.css", "src/start.js", "src/model.js", "src/reports.js", "src/storage.js", "src/backup.js", "src/drawer.js", "src/local-api.js"];
+  "ui/theme.css", "src/start.js", "src/model.js", "src/reports.js", "src/storage.js", "src/backup.js", "src/drawer.js", "src/outreach.js", "src/local-api.js"];
 const urls = new Set(files.map(file => new URL(file, scope).href));
 
 self.addEventListener("install", event => {

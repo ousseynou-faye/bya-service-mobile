@@ -1,4 +1,4 @@
-export const VERSION = "2.4.0";
+export const VERSION = "2.5.0";
 export const PAYMENTS = ["Espèces", "Wave", "Orange Money", "Carte", "Virement"];
 export const CATEGORIES = ["Savons", "Soins du visage", "Soins du corps", "Soins des pieds", "Accessoires", "Packs", "Autres"];
 export const MAX_PRICE = 10_000_000;
@@ -90,6 +90,7 @@ export function saveContact(state, data, id) {
   if (kind !== "client" && kind !== "supplier") throw new Error("Type de contact invalide.");
   const values = {kind, name: text(data, "name", "Nom", 120, true),
     phone: text(data, "phone", "Téléphone", 40), note: text(data, "note", "Note", 300)};
+  if (kind === "client" && data.offers !== undefined) values.offers = data.offers === true;
   if (id) return Object.assign(find(state.contacts.filter(c => c.kind === kind), id, "Contact introuvable."), values);
   const contact = {id: nextId(state.contacts), ...values};
   state.contacts.push(contact);

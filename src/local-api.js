@@ -4,6 +4,7 @@ import {bootstrap, movements, productHistory, replenishment, report} from "./rep
 import {backupData, backupFile} from "./backup.js";
 import {changeDrawer, drawer} from "./drawer.js";
 import {restoreState, transact} from "./storage.js";
+import {prepareOffer} from "./outreach.js";
 
 function read(state, url) {
   const {pathname, searchParams} = url;
@@ -45,6 +46,7 @@ function write(state, pathname, data) {
 
 export async function request(path, data) {
   const url = new URL(path, location.origin);
+  if (url.pathname === "/api/offer-preview") return transact(false, state => prepareOffer(state, data, today()));
   if (url.pathname === "/api/restore") {
     let raw;
     try { raw = JSON.parse(await data.text()); } catch { throw new Error("Choisis une sauvegarde mobile au format JSON."); }

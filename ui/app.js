@@ -1,5 +1,6 @@
 "use strict";
 import {remaining, salePayments} from "../src/model.js";
+import {whatsappNumber} from "../src/outreach.js";
 
 const icons = {
   grid: '<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>',
@@ -610,7 +611,8 @@ function renderContacts() {
   const items = state.data.contacts.filter(contact => contact.kind === kind);
   const label = kind === "client" ? "client" : "fournisseur";
   return heading("Contacts", "Centralisez les coordonnées de vos clients et fournisseurs.",
-    button("Ajouter un " + label, "new-contact", {style: "primary", icon: "plus"})) +
+    button("Ajouter un " + label, "new-contact", {style: "primary", icon: "plus"}) +
+    (kind === "client" ? button("Offres WhatsApp", "whatsapp-offer") : "")) +
     '<section class="panel">' + '<div class="toolbar">' + field("Type de contact",
       pick("contact-kind", [["client", "Clients"], ["supplier", "Fournisseurs"]], kind, 'id="contact-kind"')) + '</div>' +
     table(["Nom", "Téléphone", "Note", ...(kind === "client" ? ["Reste à payer"] : []), "Actions"], items, item => td("<strong>" + esc(item.name) + "</strong>", "wrap-cell") +
@@ -928,9 +930,87 @@ function editContact(id) {
   dialogForm({title: (id ? "Modifier le " : "Ajouter un ") + label,
     fields: field("Nom", input("name", item.name, 'maxlength="120" required'), true) +
       field("Téléphone", input("phone", item.phone, 'type="tel" maxlength="40"'), true) +
-      field("Note", '<textarea name="note" maxlength="300">' + esc(item.note) + '</textarea>', true),
-    label: "Enregistrer", submit: form => api("/api/contacts" + (id ? "/" + id : ""), {...formObject(form), kind}),
+      field("Note", '<textarea name="note" maxlength="300">' + esc(item.note) + '</textarea>', true) +
+      (kind === "client" ? field("Offres commerciales sur WhatsApp", pick("offers",
+        [["no", "Ne pas contacter pour des offres"], ["yes", "La cliente a accepté les offres"]], item.offers === true ? "yes" : "no"), true) : ""),
+    label: "Enregistrer", submit: form => {
+      const offers = form.get("offers") === "yes";
+      if (offers && !whatsappNumber(form.get("phone"))) throw new Error("Renseignez les 9 chiffres du numéro sénégalais ou un numéro avec indicatif international.");
+      return api("/api/contacts" + (id ? "/" + id : ""), {...formObject(form), kind, offers});
+    },
     message: "Contact enregistré."});
+}
+
+function openOffer(id) {
+  const contacts = state.data.contacts.filter(c => c.kind === "client");
+  const eligible = contacts.filter(c => c.offers === true && whatsappNumber(c.phone));
+  const products = activeProducts().filter(p => p.stock > 0);
+  if (!eligible.length || (id && !eligible.some(c => c.id === id))) {
+    const client = contacts.find(c => c.id === id);
+    showDialog("Offres WhatsApp", empty(client ? client.name : "Aucune cliente disponible pour une offre",
+      "Dans la fiche cliente, renseignez son numéro et indiquez si elle a accepté de recevoir des offres sur WhatsApp.") +
+      '<div class="actions">' + (client ? button("Modifier sa fiche", "edit-contact", {id}) :
+        contacts.length ? button("Voir les contacts", "offer-contacts") : button("Ajouter une cliente", "offer-add-client")) + '</div>');
+    return;
+  }
+  if (!products.length) {
+    showDialog("Offres WhatsApp", empty("Aucun produit disponible", "Pour proposer une offre, le produit doit être actif et avoir du stock.") +
+      button("Fermer", "close-dialog"));
+    return;
+  }
+  const fields = field("Cliente", pick("clientId", [["", "Choisir une cliente"], ...eligible.map(c => [c.id, c.name + " · " + c.phone])], id || "", "required"), true) +
+    field("Type de message", pick("kind", [["promo", "Promotion"], ["new", "Nouveau produit"]], "promo")) +
+    field("Produit disponible", pick("productId", [["", "Choisir un produit"], ...products.map(p => [p.id, p.name + " · " + fcfa(p.price)])], "", "required")) +
+    field("Prix promotionnel (FCFA)", input("price", "", 'type="number" min="1" step="1" inputmode="numeric" required')) +
+    field("Fin de la promotion (facultatif)", input("until", "", 'type="date" min="' + esc(state.data.today) + '"'));
+  showDialog("Préparer une offre WhatsApp", formHtml(fields, "Préparer le message") +
+    '<section class="offer-preview" hidden><p class="offer-recipient"></p>' +
+    field("Message à relire et à personnaliser", '<textarea name="offer-text" rows="9" maxlength="3000"></textarea>', true) +
+    '<div class="form-footer"><button type="button" class="btn secondary" data-revise>Revenir à l’offre</button>' +
+    '<a class="btn primary" target="_blank" rel="noopener noreferrer" data-chat>Ouvrir WhatsApp</a></div></section>', true);
+  const form = dialog.querySelector("form");
+  const preview = dialog.querySelector(".offer-preview");
+  const editor = preview.querySelector("textarea");
+  const chat = preview.querySelector("[data-chat]");
+  const {kind, price, until} = form.elements;
+  let draft;
+  function updateLink() {
+    const message = editor.value.trim();
+    if (message) chat.href = "https://wa.me/" + draft.phone + "?text=" + encodeURIComponent(message);
+    else chat.removeAttribute("href");
+    chat.setAttribute("aria-disabled", String(!message));
+  }
+  kind.addEventListener("change", () => {
+    for (const control of [price, until]) {
+      control.disabled = kind.value !== "promo";
+      control.closest("label").hidden = control.disabled;
+    }
+  });
+  form.addEventListener("submit", async event => {
+    event.preventDefault();
+    const data = new FormData(form);
+    try {
+      const result = await api("/api/offer-preview", {kind: data.get("kind"), price: Number(data.get("price")), until: data.get("until"),
+        clientId: Number(data.get("clientId")), productId: Number(data.get("productId"))});
+      if (!form.isConnected || !dialog.open) return;
+      draft = result;
+      editor.value = draft.message;
+      preview.querySelector(".offer-recipient").textContent = draft.name + " · +" + draft.phone;
+      formError(form, "");
+      form.hidden = true;
+      preview.hidden = false;
+      updateLink();
+      editor.focus();
+    } catch (error) { formError(form, error.message); }
+  });
+  editor.addEventListener("input", () => { form.dataset.dirty = "true"; updateLink(); });
+  preview.querySelector("[data-revise]").addEventListener("click", () => {
+    if (editor.value !== draft.message && !confirm("Revenir à l’offre et remplacer le texte personnalisé ?")) return;
+    delete form.dataset.dirty;
+    preview.hidden = true;
+    form.hidden = false;
+    form.elements.clientId.focus();
+  });
 }
 
 function addExpense() {
@@ -1130,6 +1210,7 @@ function receipt(item) {
       '</span><strong>' + esc(fcfa(item.total)) + '</strong></div>') +
     (item.credit ? creditDetails(item) : "") +
     '<div class="actions dialog-actions no-print">' +
+    (sale && item.contact_id && !item.canceled_at ? button("Offre WhatsApp", "whatsapp-offer", {id: item.contact_id}) : "") +
     (item.credit && remaining(item) ? button("Enregistrer un règlement", "settle-sale", {id: item.id}) : "") +
     (sale && !item.canceled_at ? button("Annuler la vente", "cancel-sale", {id: item.id, style: "danger"}) : '') +
     (!adjust ? button("Imprimer", "print", {icon: "print", style: "primary"}) : '') + '</div>', true);
@@ -1199,7 +1280,8 @@ async function clientAccount(id) {
       td(s.canceled_at ? "Annulé" : s.balance ? esc(fcfa(s.balance)) : "Soldé") +
       td(button("Historique", "detail", {id: s.id, small: true}) +
         (s.balance ? button("Enregistrer un règlement", "settle-sale", {id: s.id, small: true}) : "")),
-    "Aucune vente à crédit pour cette cliente.") + '<div class="actions">' + button("Fermer", "close-dialog") + '</div>', true);
+    "Aucune vente à crédit pour cette cliente.") + '<div class="actions">' +
+    button("Offre WhatsApp", "whatsapp-offer", {id}) + button("Fermer", "close-dialog") + '</div>', true);
 }
 
 async function settleTicket(id) {
@@ -1215,6 +1297,9 @@ async function settleTicket(id) {
 }
 
 const commands = {
+  "whatsapp-offer": openOffer,
+  "offer-contacts": () => { dialog.close(); state.contactKind = "client"; if (state.page === "contacts") render(); else location.hash = "contacts"; },
+  "offer-add-client": () => { state.contactKind = "client"; editContact(); },
   "client-account": clientAccount, "settle-sale": settleTicket,
   "drawer-open": () => editDrawer("open"), "drawer-close": () => editDrawer("close"),
   "drawer-withdraw": () => editDrawer("withdraw"), "drawer-classify": () => editDrawer("classify"),
