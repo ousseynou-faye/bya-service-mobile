@@ -1,4 +1,5 @@
 import {MAX_PRICE, MAX_QUANTITY, MAX_STOCK, PAYMENTS, isDay} from "./model.js";
+import {drawer} from "./drawer.js";
 
 const bounded = (value, lower, upper) => Number.isSafeInteger(value) && value >= lower && value <= upper;
 const string = (value, size) => typeof value === "string" && value.length <= size;
@@ -27,14 +28,15 @@ export function backupData(raw) {
       (o.canceled_at === null || (string(o.canceled_at, 40) && isDay(o.canceled_at.slice(0, 10))))));
     require(new Set(list.map(o => o.request_key)).size === list.length);
   }
-  require(expenses.every(e => string(e.category, 60) && string(e.note, 300) && bounded(e.amount, 1, MAX_PRICE)));
+  require(expenses.every(e => (!e.method || PAYMENTS.includes(e.method)) && string(e.category, 60) && string(e.note, 300) && bounded(e.amount, 1, MAX_PRICE)));
   const knownProducts = new Map(products.map(p => [p.id, p]));
   const knownContacts = new Map(contacts.map(c => [c.id, c]));
   const expected = new Map();
   for (const o of operations) {
     require(["sale", "purchase", "adjust"].includes(o.kind) && string(o.note, 300) && string(o.contact_name, 120) &&
       string(o.shop, 100) && string(o.shop_phone, 50) && string(o.shop_address, 200));
-    require(o.kind === "sale" ? PAYMENTS.includes(o.method) : o.method === "" && o.canceled_at === null);
+    require(o.kind === "sale" ? PAYMENTS.includes(o.method) : o.canceled_at === null &&
+      (o.method === "" || (o.kind === "purchase" && PAYMENTS.includes(o.method))));
     require(o.contact_id === null || knownContacts.get(o.contact_id)?.kind === (o.kind === "sale" ? "client" : "supplier"));
     require(o.canceled_at === null ? o.cancel_reason === null : string(o.cancel_reason, 300));
     require(Array.isArray(o.lines) && o.lines.length >= 1 && o.lines.length <= (o.kind === "adjust" ? 1 : 100));
@@ -62,5 +64,25 @@ export function backupData(raw) {
     balances.set(m.product_id, balance);
   }
   require(!expected.size && products.every(p => (balances.get(p.id) ?? 0) === p.stock));
-  return {schema, settings, products, contacts, operations, movements, expenses};
+  const {sessions = [], withdrawals = []} = raw.data;
+  const state = {schema, settings, products, contacts, operations, movements, expenses, sessions, withdrawals};
+  const safeMoney = n => bounded(n, 0, Number.MAX_SAFE_INTEGER);
+  require(Array.isArray(sessions) && sessions.every(s => s && isDay(s.day) && safeMoney(s.opening)) &&
+    new Set(sessions.map(s => s.day)).size === sessions.length);
+  const days = new Set(sessions.map(s => s.day));
+  require(Array.isArray(withdrawals) && withdrawals.every(w => w && days.has(w.day) && PAYMENTS.includes(w.method) &&
+    safeMoney(w.amount) && w.amount > 0 && bounded(w.id, 1, Number.MAX_SAFE_INTEGER) && string(w.note, 300) && w.note.trim() &&
+    /^[A-Za-z0-9-]{16,64}$/.test(w.request_key) && string(w.signature, 5000)));
+  require(new Set(withdrawals.map(w => w.id)).size === withdrawals.length &&
+    new Set(withdrawals.map(w => w.request_key)).size === withdrawals.length);
+  for (const s of sessions) {
+    const c = s.closed;
+    if (c === null) continue;
+    const view = drawer(state, s.day);
+    require(c && safeMoney(c.counted) && string(c.reason, 300) && string(c.at, 40) && isDay(c.at.slice(0, 10)) &&
+      c.expected === view.expected && c.gap === c.counted - c.expected && (!c.gap || c.reason.trim()) &&
+      !view.unknown.length && Array.isArray(c.channels) && c.channels.length === view.channels.length &&
+      view.channels.every((row, i) => Object.entries(row).every(([k,v]) => c.channels[i]?.[k] === v)));
+  }
+  return state;
 }

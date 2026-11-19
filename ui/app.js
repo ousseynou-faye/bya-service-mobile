@@ -47,7 +47,7 @@ const shortDate = new Intl.DateTimeFormat("fr-SN", {day: "2-digit", month: "shor
 const weekday = new Intl.DateTimeFormat("fr-SN", {weekday: "short", timeZone: "UTC"});
 const compactNumber = new Intl.NumberFormat("fr-SN", {notation: "compact", maximumFractionDigits: 1});
 const channels = {sale: "Vente", purchase: "Achat", adjust: "Ajustement", return: "Retour"};
-const journalTypes = {sale: "Vente", purchase: "Achat", expense: "Dépense"};
+const journalTypes = {sale: "Vente", purchase: "Achat", expense: "Dépense", withdrawal: "Retrait"};
 const financePresets = {today: "Aujourd’hui", month: "Ce mois", previous: "Mois précédent"};
 let toastTimer;
 let menuTrigger = menuControls[0];
@@ -322,10 +322,81 @@ function matchingTickets() {
   return query && !matches.length ? empty("Aucun ticket correspondant.", "Essayez un numéro, un client ou un moyen de paiement.") : recentSales(matches);
 }
 
+let drawerDay = "";
+let currentDrawer;
+function paymentField(label) {
+  return field(label, pick("method", [["", "Sélectionner"], ...state.data.payments.map(p => [p, p])], "", "required"));
+}
+
+function drawerPanel(view) {
+  const {day, session, expected, unknown, history, withdrawals} = view;
+  const closed = session?.closed;
+  const channels = closed?.channels || view.channels;
+  const actions = closed ? "" : session ? button("Enregistrer un retrait", "drawer-withdraw") +
+    button("Clôturer la caisse", "drawer-close", {style: "primary"}) : button("Ouvrir la caisse", "drawer-open", {style: "primary"});
+  const amounts = session ? '<div class="stats">' + stat("Fonds du matin", fcfa(session.opening), "Espèces au début de la journée", "wallet") +
+    stat("Espèces attendues", unknown.length ? "À vérifier" : fcfa(closed?.expected ?? expected), "Dans le tiroir", "wallet", "green") +
+    (closed ? stat("Espèces comptées", fcfa(closed.counted), "À la clôture", "receipt") +
+      stat("Écart de caisse", fcfa(closed.gap), closed.reason || "Comptage conforme", "stack") : "") + '</div>' : "";
+  return '<section class="panel drawer-day">' + titlebar("Journée de caisse", pretty(day) + " · " +
+    (closed ? "Clôturée" : session ? "Ouverte" : "À ouvrir")) +
+    '<div class="toolbar">' + field("Consulter une date", input("drawer-day", day, 'type="date" id="drawer-day" max="' + state.data.today + '"')) +
+    (history.length ? field("Historique des clôtures", pick("drawer-history", [["", "Choisir une clôture"],
+      ...history.map(d => [d, pretty(d)])], closed ? day : "", 'id="drawer-history"')) : "") +
+    '<div class="actions">' + actions + '</div></div>' + amounts +
+    (unknown.length ? '<p class="form-note">' + unknown.length + ' opération(s) sans moyen de paiement. ' +
+      button("Préciser le paiement", "drawer-classify", {small:true}) + '</p>' : "") +
+    (session ? '<details><summary>Récapitulatif par moyen de paiement</summary>' +
+      table(["Moyen", "Ventes", "Achats", "Dépenses", "Retraits", "Annulations (+/−)"], channels,
+        r => td(esc(r.method)) + [r.sales, r.purchases, r.expenses, r.withdrawals, r.reversals].map(n => td(esc(fcfa(n)), "numeric")).join(""), "") + '</details>' : "") +
+    (withdrawals.length ? '<details><summary>Retraits de la journée</summary>' + table(["Motif", "Moyen", "Montant"], withdrawals,
+      w => td(esc(w.note)) + td(esc(w.method)) + td(esc(fcfa(w.amount))), "") + '</details>' : "") + '</section>';
+}
+
+function editDrawer(action) {
+  const {day, expected, unknown} = currentDrawer;
+  const amount = (label, name) => field(label + " (FCFA)", input(name, "", 'type="number" min="0" step="1" inputmode="numeric" required'));
+  const note = (label, name, required) => field(label, '<textarea name="' + name + '" maxlength="300" ' +
+    (required ? 'required' : '') + '></textarea>', true);
+  const request_key = requestKey();
+  let title, fields;
+  if (action === "open") {
+    title = "Ouvrir la caisse";
+    fields = amount("Fonds présent avant les opérations du jour", "opening");
+  } else if (action === "withdraw") {
+    title = "Enregistrer un retrait";
+    fields = amount("Montant retiré", "amount") + paymentField("Moyen débité") + note("Motif du retrait", "note", true);
+  } else if (action === "classify") {
+    title = "Préciser le paiement";
+    fields = field("Opération", pick("entry", unknown.map((e,i) => [i, journalTypes[e.kind] + " #" + e.id + " · " +
+      (e.label || "") + " · " + fcfa(e.amount)]), 0)) + paymentField("Moyen utilisé");
+  } else {
+    if (unknown.length) return editDrawer("classify");
+    title = "Clôturer la caisse";
+    fields = '<p class="field full">Espèces attendues dans le tiroir : <strong>' + esc(fcfa(expected)) + '</strong></p>' +
+      amount("Espèces réellement comptées", "counted") + '<output class="count-gap" aria-live="polite"></output>' +
+      note("Explication en cas d’écart", "reason", false);
+  }
+  const form = dialogForm({title: title + " · " + pretty(day), fields, label: title, message: "Journée de caisse actualisée.",
+    submit: data => {
+      const values = formObject(data);
+      for (const key of ["opening", "amount", "counted"]) if (key in values) values[key] = Number(values[key]);
+      if (action === "classify") Object.assign(values, unknown[Number(values.entry)]);
+      return api("/api/drawer/" + action, {...values, day, expected, request_key});
+    }});
+  if (action === "close") form.elements.counted.addEventListener("input", () => {
+    const input = form.elements.counted;
+    const gap = input.valueAsNumber - expected;
+    form.querySelector("output").textContent = input.validity.valid ? "Écart : " + fcfa(gap) : "";
+    form.elements.reason.required = input.validity.valid && gap !== 0;
+  });
+}
+
 function renderCash(report) {
   state.cashSales = report.sales;
   return heading("Caisse", "Enregistrez les ventes et retrouvez les tickets par date.",
     button("Nouvelle vente", "new-sale", {style: "primary", icon: "plus"})) +
+    drawerPanel(currentDrawer) +
     '<div class="stats">' + stat("Ventes encaissées", fcfa(report.revenue), "Pour la période affichée", "wallet") +
     stat("Tickets validés", report.sale_count, "Hors annulations", "receipt", "green") +
     stat("Articles vendus", number.format(report.units_sold), "Quantités des tickets validés", "box", "violet") +
@@ -537,7 +608,7 @@ function financeJournal(report) {
   const entries = report.journal.filter(entry => (!kind || entry.kind === kind) && (!status || entry.status === status));
   return table(["Date", "Opération", "Contact ou catégorie", "Montant", "Impact sur le flux", "Statut", "Actions"], entries, entry => {
     const canceled = entry.status === "canceled";
-    const action = entry.kind === "expense" ? (canceled ? "" : button("Annuler", "cancel-expense",
+    const action = entry.kind === "withdrawal" ? "" : entry.kind === "expense" ? (canceled ? "" : button("Annuler", "cancel-expense",
       {id: entry.id, small: true, style: "subtle"})) : button("Détail", "detail", {id: entry.id, small: true, style: "subtle"});
     return td(esc(pretty(entry.day))) + td('<strong>' + esc(journalTypes[entry.kind] + ' · ' + entry.number) + '</strong>' +
       (entry.note ? '<span class="item-sub">' + esc(entry.note) + '</span>' : ''), "wrap-cell") +
@@ -571,7 +642,7 @@ function renderReports(report) {
     '<div class="stats">' + stat("Ventes encaissées", fcfa(report.revenue), report.sale_count + " ticket(s) validé(s)", "wallet") +
     stat("Dépenses d’exploitation", fcfa(report.expenses_total), "Transport, emballage et autres frais", "receipt", "gold") +
     stat("Achats de marchandises", fcfa(report.purchases_total), "Commandes enregistrées sur la période", "box", "violet") +
-    stat("Flux net de la période", fcfa(report.net_flow), "Encaissements moins achats et frais enregistrés", "trend", report.net_flow < 0 ? "negative" : "green") + '</div>' +
+    stat("Flux net de la période", fcfa(report.net_flow), "Encaissements moins achats, frais et retraits", "trend", report.net_flow < 0 ? "negative" : "green") + '</div>' +
     '<div class="split finance-breakdown"><section class="panel">' + titlebar("Résultat d’exploitation", "Calculé à partir du coût des produits vendus") +
     '<dl class="finance-summary"><div><dt>Ventes avant remise</dt><dd>' + esc(fcfa(report.gross_sales)) + '</dd></div>' +
     '<div><dt>Remises accordées</dt><dd>' + esc(fcfa(report.discounts)) + '</dd></div>' +
@@ -670,6 +741,11 @@ async function render(quiet = false) {
       } else {
         const report = await request;
         if (view !== state.view) return;
+        if (page === "cash") {
+          const drawer = await api("/api/drawer?" + new URLSearchParams({day: drawerDay || state.data.today}));
+          if (view !== state.view) return;
+          currentDrawer = drawer;
+        }
         if (page === "reports") state.finance.report = report;
         html = {dashboard: dashboardActivity, cash: renderCash, expenses: renderExpenses, reports: renderReports}[page](report);
       }
@@ -830,6 +906,7 @@ function addExpense() {
   dialogForm({title: "Ajouter une dépense",
     fields: field("Date", input("day", state.data.today, 'type="date" required max="' + state.data.today + '"')) +
       field("Montant (FCFA)", input("amount", "", 'type="number" min="1" max="10000000" step="1" required')) +
+      paymentField("Payé depuis") +
       field("Catégorie", input("category", "", 'list="expense-categories" maxlength="60" required') +
         '<datalist id="expense-categories"><option>Transport</option><option>Emballage</option><option>Loyer</option>' +
         '<option>Communication</option><option>Autres</option></datalist>', true) +
@@ -892,6 +969,7 @@ function orderForm(kind, initialLines = []) {
       '</div>' +
       field("Date", input("day", state.data.today, 'type="date" required max="' + state.data.today + '"')) +
       (sale ? field("Paiement reçu par", pick("method", state.data.payments.map(p => [p, p]), state.data.payments[0])) : "") +
+      (kind === "purchase" ? paymentField("Achat payé depuis") : "") +
       (!adjust ? field(sale ? "Client" : "Fournisseur", pick("contact_id", [["", sale ? "Client comptoir" : "Sans fournisseur"],
         ...people.map(p => [p.id, p.name])], "")) : "") +
       (sale ? field("Remise (FCFA)", input("discount", 0, 'type="number" min="0" step="1" required')) : "") +
@@ -1009,7 +1087,7 @@ function receipt(item) {
 function cancelSale(id) {
   dialogForm({title: "Annuler la vente",
     fields: '<p class="field full">Les articles seront remis en stock. Le ticket restera disponible avec le statut « Annulée ». ' +
-      'Si un remboursement est nécessaire, effectuez-le auprès du client.</p>' +
+      'La caisse déduira le montant aujourd’hui sur le moyen de paiement du ticket. Effectuez le remboursement par ce même moyen.</p>' +
       field("Motif d’annulation", '<textarea name="reason" maxlength="300" required></textarea>', true),
     label: "Confirmer l’annulation", danger: true,
     submit: form => api("/api/operations/" + id + "/cancel", formObject(form)), message: "Vente annulée. Le stock a été recrédité.",
@@ -1051,6 +1129,8 @@ function countStock(id) {
 }
 
 const commands = {
+  "drawer-open": () => editDrawer("open"), "drawer-close": () => editDrawer("close"),
+  "drawer-withdraw": () => editDrawer("withdraw"), "drawer-classify": () => editDrawer("classify"),
   "count-stock": countStock,
   "new-product": () => editProduct(),
   "edit-product": editProduct, "toggle-product": toggleProduct,
@@ -1127,6 +1207,10 @@ main.addEventListener("input", event => {
 
 main.addEventListener("change", event => {
   const {id, value} = event.target;
+  if ((id === "drawer-day" || id === "drawer-history") && value && event.target.validity.valid) {
+    drawerDay = value;
+    void render(true);
+  }
   if (event.target.form?.id === "replenishment-form") updateReplenishmentSelection(event.target);
   if (id === "finance-kind" || id === "finance-status") {
     state.finance[id === "finance-kind" ? "kind" : "status"] = value;
