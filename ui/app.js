@@ -192,6 +192,7 @@ function navigation() {
       icon(sections[page][1]) + '<span>' + label + '</span></a>';
   }).join("");
   document.getElementById("brand-name").textContent = state.data.settings.shop;
+  document.getElementById("top-shop").textContent = state.data.settings.shop;
   document.getElementById("today").innerHTML = icon("calendar") + esc(pretty(state.data.today));
   document.getElementById("section-title").textContent = sections[state.page][0];
   document.getElementById("demo-mark").hidden = !state.data.demo;
@@ -275,15 +276,13 @@ function dashboardSales(items) {
 }
 
 function dashboardShell() {
-  return '<div class="home-start"><section class="home-hero" aria-labelledby="home-title"><div class="home-hero-copy">' +
-    '<p class="home-domain">Savons et cosmétiques</p><h1 id="home-title">Tableau de bord</h1></div>' +
-    '<div class="home-visual" aria-hidden="true"></div></section>' +
-    '<section class="panel home-shortcuts" aria-labelledby="shortcut-title"><h2 id="shortcut-title">Actions rapides</h2>' +
-    '<div class="home-shortcut-list">' + button("Nouvelle vente", "new-sale", {style: "primary", icon: "cart"}) +
+  return '<section class="home-cover" aria-labelledby="home-title"><div class="home-hero"><div class="home-hero-copy">' +
+    '<p class="home-domain">' + esc(pretty(state.data.today)) + '</p><h1 id="home-title">Tableau de bord</h1>' +
+    button("Nouvelle vente", "new-sale", {style: "primary", icon: "cart"}) + '</div>' +
+    '<div class="home-visual" aria-hidden="true"></div></div>' +
+    '<div class="home-tools" role="group" aria-label="Opérations de boutique">' +
     button("Nouvel achat", "new-purchase", {icon: "box"}) + button("Ajouter une dépense", "new-expense", {icon: "wallet"}) +
-    '</div></section></div>' +
-    '<div id="home-setup">' + dashboardFlag() + '</div>' +
-    '<div id="home-live" aria-busy="true"><div class="initial home-loading" role="status">Chargement de l’activité…</div></div>';
+    '</div></section><div id="home-live" aria-busy="true"><div class="initial home-loading" role="status">Chargement de l’activité…</div></div>';
 }
 
 function dashboardActivity(report) {
@@ -298,7 +297,7 @@ function dashboardActivity(report) {
     stat("Marge brute", fcfa((dayRevenue * 100 - dayCost) / 100), "Après coût des produits vendus", "trend", "green") +
     stat("Stock à surveiller", number.format(alerts.length), outOfStock ? number.format(outOfStock) + " en rupture" :
       "Au seuil ou en rupture", "alert", "gold") + '</div></section>' +
-    '<div class="home-grid"><section class="panel sales-panel">' +
+    dashboardFlag() + '<div class="home-grid"><section class="panel sales-panel">' +
     titlebar("Évolution des ventes", "Chiffre d’affaires en FCFA · 7 derniers jours", link("Finances", "#reports")) +
     '<p class="chart-total"><strong>' + esc(fcfa(report.revenue)) + '</strong><span> sur la période</span></p>' +
     dashboardChart(report) + '</section>' +
@@ -329,6 +328,33 @@ function paymentField(label) {
   return field(label, pick("method", [["", "Sélectionner"], ...state.data.payments.map(p => [p, p])], "", "required"));
 }
 
+const workspaceViews = {
+  cash: [["day", "Journée"], ["tickets", "Tickets"]],
+  stock: [["inventory", "Inventaire"], ["purchases", "Achats"], ["movements", "Mouvements"]],
+  reports: [["summary", "Synthèse"], ["journal", "Journal"], ["analysis", "Analyses"]]
+};
+const selectedView = {cash: "day", stock: "inventory", reports: "summary"};
+
+function viewPicker(page) {
+  return '<div class="view-picker" role="group" aria-label="Vues de la rubrique">' +
+    workspaceViews[page].map(([key, label]) => '<button type="button" data-view="' + key + '" aria-pressed="' +
+      (key === selectedView[page]) + '">' + label + '</button>').join("") + '</div>';
+}
+
+function displayView(page) {
+  main.querySelectorAll("[data-panel]").forEach(panel => { panel.hidden = panel.dataset.panel !== selectedView[page]; });
+  main.querySelectorAll("[data-view]").forEach(control => {
+    control.setAttribute("aria-pressed", String(control.dataset.view === selectedView[page]));
+  });
+}
+
+main.addEventListener("click", event => {
+  const control = event.target.closest("[data-view]");
+  if (!control) return;
+  selectedView[state.page] = control.dataset.view;
+  displayView(state.page);
+});
+
 function drawerPanel(view) {
   const {day, session, expected, unknown, history, withdrawals} = view;
   const closed = session?.closed;
@@ -339,7 +365,7 @@ function drawerPanel(view) {
     stat("Espèces attendues", unknown.length ? "À vérifier" : fcfa(closed?.expected ?? expected), "Dans le tiroir", "wallet", "green") +
     (closed ? stat("Espèces comptées", fcfa(closed.counted), "À la clôture", "receipt") +
       stat("Écart de caisse", fcfa(closed.gap), closed.reason || "Comptage conforme", "stack") : "") + '</div>' : "";
-  return '<section class="panel drawer-day">' + titlebar("Journée de caisse", pretty(day) + " · " +
+  return '<section class="panel drawer-day" data-panel="day">' + titlebar("Journée de caisse", pretty(day) + " · " +
     (closed ? "Clôturée" : session ? "Ouverte" : "À ouvrir")) +
     '<div class="toolbar">' + field("Consulter une date", input("drawer-day", day, 'type="date" id="drawer-day" max="' + state.data.today + '"')) +
     (history.length ? field("Historique des clôtures", pick("drawer-history", [["", "Choisir une clôture"],
@@ -397,12 +423,12 @@ function renderCash(report) {
   state.cashSales = report.sales;
   return heading("Caisse", "Enregistrez les ventes et retrouvez les tickets par date.",
     button("Nouvelle vente", "new-sale", {style: "primary", icon: "plus"})) +
-    drawerPanel(currentDrawer) +
-    '<div class="stats">' + stat("Encaissements nets", fcfa(report.collected), "Acomptes et règlements inclus, remboursements déduits", "wallet") +
+    viewPicker("cash") + drawerPanel(currentDrawer) +
+    '<div class="stats" data-panel="tickets">' + stat("Encaissements nets", fcfa(report.collected), "Acomptes et règlements inclus, remboursements déduits", "wallet") +
     stat("Tickets validés", report.sale_count, "Hors annulations", "receipt", "green") +
     stat("Articles vendus", number.format(report.units_sold), "Quantités des tickets validés", "box", "violet") +
     stat("Panier moyen", report.sale_count ? fcfa(report.revenue / report.sale_count) : "—", "Valeur moyenne des ventes validées", "wallet", "gold") + '</div>' +
-    '<section class="panel table-panel">' + titlebar("Historique des ventes") + dateToolbar("cash") +
+    '<section class="panel table-panel" data-panel="tickets">' + titlebar("Historique des ventes") + dateToolbar("cash") +
     '<div class="toolbar">' + field("Rechercher un ticket", input("ticket-search", state.ticketQuery,
       'id="ticket-search" type="search" placeholder="Ticket, client ou paiement"')) +
     '</div><div id="ticket-results">' + matchingTickets() + '</div></section>';
@@ -532,6 +558,7 @@ function renderProductHistory({product, sales, movements}) {
 }
 
 function openProductMovements(id) {
+  selectedView.stock = "movements";
   state.stockFilter = String(id);
   dialog.close();
   if (state.page === "stock") {
@@ -547,12 +574,12 @@ function renderStock(movements, report) {
   const stockValue = products.reduce((total, p) => total + p.stock * p.average, 0);
   const units = products.reduce((total, p) => total + p.stock, 0);
   return heading("Achats et stock", "Réceptionnez les produits et suivez les entrées, les ventes et les ajustements.",
-    link("Réapprovisionner", "#replenish", "secondary") + button("Ajuster le stock", "new-adjust", {icon: "stack"}) +
-    button("Enregistrer un achat", "new-purchase", {style: "primary", icon: "plus"})) +
+    button("Enregistrer un achat", "new-purchase", {style: "primary", icon: "plus"}) +
+    link("Réapprovisionner", "#replenish", "secondary") + button("Ajuster le stock", "new-adjust", {icon: "stack"})) +
     '<div class="stats">' + stat("Unités en stock", number.format(units), products.length + " référence(s) active(s)", "box") +
     stat("Valeur du stock", fcfa(stockValue / 100), "Sur la base du coût moyen", "wallet", "green") +
     stat("Alertes de stock", stockAlerts().length, "Au seuil ou en rupture", "alert", "gold") + '</div>' +
-    '<section class="panel table-panel">' + titlebar("État des stocks") +
+    viewPicker("stock") + '<section class="panel table-panel" data-panel="inventory">' + titlebar("État des stocks") +
     table(["Produit", "Quantité", "Seuil", "Valeur au coût", "État", "Actions"],
       [...products].sort((a, b) => (a.stock === 0 ? 0 : a.stock <= a.threshold ? 1 : 2) -
         (b.stock === 0 ? 0 : b.stock <= b.threshold ? 1 : 2)), p =>
@@ -561,13 +588,13 @@ function renderStock(movements, report) {
       td(productStatus(p)) + td('<div class="actions">' + button("Compter", "count-stock", {id: p.id, small: true}) +
         button("Fiche", "product-history", {id: p.id, small: true, style: "subtle"}) + '</div>'),
     "Aucun produit actif.") + '</section>' +
-    '<section class="panel table-panel">' + titlebar("Achats enregistrés") + dateToolbar("stock") +
+    '<section class="panel table-panel" data-panel="purchases">' + titlebar("Achats enregistrés") + dateToolbar("stock") +
     table(["Référence", "Date", "Fournisseur", "Montant", "Actions"], report.purchases, item =>
       td("<strong>" + esc(item.number) + "</strong>") + td(esc(pretty(item.day))) +
       td(esc(item.contact_name || "—")) + td(esc(fcfa(item.total)), "numeric") +
       td(button("Voir l’achat", "detail", {id: item.id, small: true, style: "subtle"})),
       "Aucun achat sur cette période.") + '</section>' +
-    '<section class="panel table-panel">' + titlebar("Mouvements de stock", "300 mouvements les plus récents pour le filtre choisi") +
+    '<section class="panel table-panel" data-panel="movements">' + titlebar("Mouvements de stock", "300 mouvements les plus récents pour le filtre choisi") +
     '<div class="toolbar">' + field("Produit", pick("stock-filter", [["", "Tous les produits"],
       ...state.data.products.map(p => [p.id, p.name + " · " + p.sku])], state.stockFilter, 'id="stock-filter"')) + '</div>' +
     table(["Date", "Produit", "Mouvement", "Variation", "Stock après", "Actions"], movements, movement =>
@@ -641,12 +668,13 @@ function renderReports(report) {
     titlebar("Période", pretty(period.start) + " au " + pretty(period.end)) +
     '<div class="actions finance-presets">' + Object.entries(financePresets).map(([preset, label]) =>
       button(label, "finance-" + preset, {small: true, pressed: preset === activePreset})).join("") + '</div>' +
-    dateToolbar("reports") + '</section>' +
-    '<div class="stats">' + stat("Encaissements nets", fcfa(report.collected), "Acomptes et règlements inclus, remboursements déduits", "wallet") +
+    '<details class="period-custom"' + (activePreset ? '' : ' open') + '><summary>Dates personnalisées</summary>' +
+    dateToolbar("reports") + '</details></section>' + viewPicker("reports") +
+    '<div class="stats" data-panel="summary">' + stat("Encaissements nets", fcfa(report.collected), "Acomptes et règlements inclus, remboursements déduits", "wallet") +
     stat("Dépenses d’exploitation", fcfa(report.expenses_total), "Transport, emballage et autres frais", "receipt", "gold") +
     stat("Achats de marchandises", fcfa(report.purchases_total), "Commandes enregistrées sur la période", "box", "violet") +
     stat("Flux net de la période", fcfa(report.net_flow), "Encaissements moins achats, frais et retraits", "trend", report.net_flow < 0 ? "negative" : "green") + '</div>' +
-    '<div class="split finance-breakdown"><section class="panel">' + titlebar("Résultat d’exploitation", "Calculé à partir du coût des produits vendus") +
+    '<div class="split finance-breakdown" data-panel="summary"><section class="panel">' + titlebar("Résultat d’exploitation", "Calculé à partir du coût des produits vendus") +
     '<dl class="finance-summary"><div><dt>Ventes avant remise</dt><dd>' + esc(fcfa(report.gross_sales)) + '</dd></div>' +
     '<div><dt>Remises accordées</dt><dd>' + esc(fcfa(report.discounts)) + '</dd></div>' +
     '<div><dt>Ventes après remise</dt><dd>' + esc(fcfa(report.revenue)) + '</dd></div>' +
@@ -657,13 +685,13 @@ function renderReports(report) {
     '<section class="panel table-panel">' + titlebar("Encaissements par moyen") +
     table(["Moyen de paiement", "Montant"], income, ([method, amount]) =>
       td(esc(method)) + td(esc(fcfa(amount)), "numeric"), "Aucun encaissement sur cette période.") + '</section></div>' +
-    '<section class="panel table-panel">' + titlebar("Journal financier", "Le CSV reprend la période et les filtres du journal.") +
+    '<section class="panel table-panel" data-panel="journal">' + titlebar("Journal financier", "Le CSV reprend la période et les filtres du journal.") +
     '<div class="toolbar finance-journal-tools">' + field("Type d’opération", pick("finance-kind", [["", "Tous les types"],
       ...Object.entries(journalTypes)], kind, 'id="finance-kind"')) + field("Statut", pick("finance-status",
       [["", "Tous les statuts"], ["valid", "Validées"], ["canceled", "Annulées"]], status, 'id="finance-status"')) +
     '<span id="finance-export">' + link("Exporter le CSV", financeExportUrl(), "secondary", "download") + '</span></div>' +
     '<div id="finance-journal" aria-live="polite">' + financeJournal(report) + '</div></section>' +
-    '<div class="split finance-breakdown"><section class="panel table-panel">' + titlebar("Dépenses par catégorie") +
+    '<div class="split finance-breakdown" data-panel="analysis"><section class="panel table-panel">' + titlebar("Dépenses par catégorie") +
     table(["Catégorie", "Montant"], report.expense_categories, ([category, amount]) =>
       td(esc(category), "wrap-cell") + td(esc(fcfa(amount)), "numeric"), "Aucune dépense validée sur cette période.") + '</section>' +
     '<section class="panel table-panel">' + titlebar("Produits les plus vendus", "Classés par unités vendues") +
@@ -717,7 +745,7 @@ async function render(quiet = false) {
   const dashboard = page === "dashboard";
   if (dashboard) {
     if (main.dataset.page !== page) main.innerHTML = dashboardShell();
-    else document.getElementById("home-setup").innerHTML = dashboardFlag();
+
   } else if (!quiet) {
     main.innerHTML = '<div class="initial" role="status">Chargement…</div>';
   }
@@ -760,6 +788,7 @@ async function render(quiet = false) {
       activity.setAttribute("aria-busy", "false");
     } else {
       main.innerHTML = html;
+      if (workspaceViews[page]) displayView(page);
     }
   } catch (error) {
     if (view !== state.view) return;
