@@ -1,5 +1,5 @@
 import {activateProduct, addExpense, addOperation, cancelExpense, cancelSale, detail,
-  saveContact, saveProduct, saveSettings, today} from "./model.js";
+  remaining, settleSale, saveContact, saveProduct, saveSettings, today} from "./model.js";
 import {bootstrap, movements, productHistory, replenishment, report} from "./reports.js";
 import {backupData, backupFile} from "./backup.js";
 import {changeDrawer, drawer} from "./drawer.js";
@@ -9,6 +9,12 @@ function read(state, url) {
   const {pathname, searchParams} = url;
   if (pathname === "/api/drawer") return drawer(state, searchParams.get("day") || today());
   if (pathname === "/api/bootstrap") return bootstrap(state);
+  if (pathname === "/api/client-credit") {
+    const id = Number(searchParams.get("id"));
+    return state.operations.filter(o => o.credit && o.contact_id === id)
+      .map(o => ({...detail(state, o.id), balance: remaining(o)}))
+      .sort((a, b) => b.day.localeCompare(a.day) || b.id - a.id);
+  }
   if (pathname === "/api/replenishment") return replenishment(state);
   if (pathname === "/api/movements") return movements(state, Number(searchParams.get("product_id")));
   if (pathname === "/api/report") return report(state, searchParams.get("start") ?? undefined, searchParams.get("end") ?? undefined);
@@ -29,6 +35,7 @@ function write(state, pathname, data) {
     case "settings": return saveSettings(state, data);
     case "expenses": return action === "cancel" ? cancelExpense(state, id) : addExpense(state, data);
     case "operations":
+      if (action === "settle") return settleSale(state, data, id);
       if (action === "cancel") return cancelSale(state, data, id);
       if (["sale", "purchase", "adjust"].includes(key)) return addOperation(state, key, data);
       break;
@@ -80,7 +87,7 @@ export async function download(path) {
       const {searchParams: params} = url;
       const data = await transact(false, state => read(state, new URL("/api/report?" + params, location.origin)));
       const kind = params.get("kind"), status = params.get("status");
-      const labels = {sale: "Vente", purchase: "Achat", expense: "Dépense", withdrawal: "Retrait"};
+      const labels = {sale: "Vente", purchase: "Achat", expense: "Dépense", withdrawal: "Retrait", settlement: "Règlement", refund: "Remboursement"};
       const rows = data.journal.filter(row => (!kind || kind === row.kind) && (!status || status === row.status));
       content = csv([["Date", "Type", "Référence", "Contact ou catégorie", "Paiement", "Montant (FCFA)", "État", "Libellé", "Flux (FCFA)"],
         ...rows.map(r => [r.day, labels[r.kind], r.number, r.party, r.method, r.amount,

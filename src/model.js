@@ -1,4 +1,4 @@
-export const VERSION = "2.2.0";
+export const VERSION = "2.3.0";
 export const PAYMENTS = ["Espèces", "Wave", "Orange Money", "Carte", "Virement"];
 export const CATEGORIES = ["Savons", "Soins du visage", "Soins du corps", "Soins des pieds", "Accessoires", "Packs", "Autres"];
 export const MAX_PRICE = 10_000_000;
@@ -129,6 +129,29 @@ export function detail(state, id) {
   return {...display, number: number(display.kind, id)};
 }
 
+export function salePayments(sale) {
+  return [{day: sale.day, method: sale.method, amount: sale.credit?.deposit ?? sale.total},
+    ...(sale.credit?.payments || [])];
+}
+
+export function remaining(sale) {
+  return sale.canceled_at ? 0 : sale.total - salePayments(sale).reduce((sum, p) => sum + p.amount, 0);
+}
+
+export function settleSale(state, data, id) {
+  const sale = find(state.operations, id, "Ticket introuvable.");
+  if (!sale.credit) throw new Error("Ce ticket est déjà payé intégralement.");
+  const {request_key, signature, previous} = attempt(sale.credit.payments, "settle", data);
+  if (previous) return detail(state, id);
+  if (sale.canceled_at) throw new Error("Ce ticket est annulé.");
+  const day = operationDay(data);
+  if (day < sale.day) throw new Error("Le règlement doit être daté du jour de la vente ou après.");
+  writableDay(state, day);
+  const amount = integer(data.amount, "Montant du règlement", 1, remaining(sale));
+  sale.credit.payments.push({day, amount, method: payment(data.method), request_key, signature});
+  return detail(state, id);
+}
+
 export function addOperation(state, kind, data) {
   const {request_key, signature, previous} = attempt(state.operations, kind, data);
   if (previous) return detail(state, previous.id);
@@ -169,6 +192,14 @@ export function addOperation(state, kind, data) {
   const operation = {id: nextId(state.operations), kind, request_key, signature, day, note, method,
     contact_id: contact?.id ?? null, contact_name: contact?.name ?? "", shop, shop_phone: phone, shop_address: address,
     lines: entries.map(entry => entry.line), discount, total: subtotal - discount, canceled_at: null, cancel_reason: null};
+  if (kind === "sale" && data.payment_mode === "partial") {
+    if (!contact) throw new Error("Choisis une cliente pour cette vente à crédit.");
+    if (operation.total <= 0) throw new Error("Le total de la vente doit être positif.");
+    const deposit = integer(data.deposit, "Acompte", 0, operation.total - 1);
+    const due = data.due || "";
+    if (due && (!isDay(due) || due < day)) throw new Error("L’échéance doit être à partir du jour de la vente.");
+    operation.credit = {deposit, due, payments: []};
+  }
   for (const {product, delta, line} of entries) {
     const average = kind === "purchase" ? costAverage(product.stock, product.average, delta, line.cost) : product.average;
     move(state, product, operation, delta, average, kind);

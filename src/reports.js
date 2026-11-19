@@ -1,10 +1,14 @@
-import {CATEGORIES, DAY, MAX_QUANTITY, PAYMENTS, VERSION, find, isDay, number, offset, today} from "./model.js";
+import {CATEGORIES, DAY, MAX_QUANTITY, PAYMENTS, VERSION, find, isDay, number, offset, remaining, salePayments, today} from "./model.js";
 
 const alphabetical = (a, b) => a.name.localeCompare(b.name, "fr", {sensitivity: "base"}) || a.id - b.id;
 const recent = (a, b) => b.day.localeCompare(a.day) || b.id - a.id;
 
 export function bootstrap(state) {
-  return {today: today(), version: VERSION, demo: false, settings: state.settings, payments: PAYMENTS,
+  const balances = {};
+  for (const o of state.operations) {
+    if (o.credit) balances[o.contact_id] = (balances[o.contact_id] || 0) + remaining(o);
+  }
+  return {today: today(), version: VERSION, demo: false, balances, settings: state.settings, payments: PAYMENTS,
     categories: CATEGORIES, products: [...state.products].sort(alphabetical), contacts: [...state.contacts].sort(alphabetical)};
 }
 
@@ -55,20 +59,19 @@ export function report(state, start = offset(today(), -29), end = today()) {
     if (kind === "adjust") continue;
     const item = {id, day, contact_name, method, note, total, canceled_at, number: number(kind, id)};
     journal.push({kind, id, day, number: item.number, party: contact_name, method, note, amount: total,
-      status: canceled_at ? "canceled" : "valid", flow: canceled_at ? 0 : kind === "sale" ? total : -total});
+      status: canceled_at ? "canceled" : "valid", flow: kind === "sale" ? (operation.credit?.deposit ?? total) : -total});
     if (kind === "purchase") {
       purchases_total += total;
       purchases.push(item);
       continue;
     }
     const lineCost = lines.reduce((sum, line) => sum + BigInt(line.cost) * BigInt(line.quantity), 0n);
-    sales.push({...item, cost: Number(lineCost)});
+    sales.push({...item, balance: remaining(operation), cost: Number(lineCost)});
     if (canceled_at) continue;
     revenue += total;
     discounts += operation.discount || 0;
     cost += lineCost;
     sale_count++;
-    channels[method] += total;
     series[(Date.parse(day) - Date.parse(start)) / DAY].total += total;
     for (const line of lines) {
       units_sold += line.quantity;
@@ -78,6 +81,23 @@ export function report(state, start = offset(today(), -29), end = today()) {
       best.set(line.product_id, row);
     }
   }
+  for (const sale of state.operations) {
+    if (sale.kind !== "sale") continue;
+    const ref = number("sale", sale.id);
+    const refundDay = sale.canceled_at?.slice(0, 10);
+    for (const [i, p] of salePayments(sale).entries()) {
+      const entry = {id: sale.id, number: ref, party: sale.contact_name, method: p.method, amount: p.amount, note: "", status: "valid"};
+      if (inRange(p)) {
+        channels[p.method] += p.amount;
+        if (i > 0) journal.push({...entry, kind: "settlement", day: p.day, flow: p.amount});
+      }
+      if (p.amount && refundDay >= start && refundDay <= end) {
+        channels[p.method] -= p.amount;
+        journal.push({...entry, kind: "refund", day: refundDay, flow: -p.amount});
+      }
+    }
+  }
+  const collected = Object.values(channels).reduce((sum, n) => sum + n, 0);
   for (const {id, day, category, note, amount, canceled_at, method} of expenses) {
     journal.push({kind: "expense", id, day, number: number("expense", id), party: category, method: method || "", note,
       amount, status: canceled_at ? "canceled" : "valid", flow: canceled_at ? 0 : -amount});
@@ -95,9 +115,9 @@ export function report(state, start = offset(today(), -29), end = today()) {
   const gross = BigInt(revenue) * 100n - cost;
   const top = [...best.values()].sort((a, b) => b.quantity - a.quantity || alphabetical(a, b)).slice(0, 5);
   const expense_categories = [...categories].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], "fr"));
-  return {revenue, discounts, units_sold, gross_sales: revenue + discounts,
+  return {revenue, collected, discounts, units_sold, gross_sales: revenue + discounts,
     gross_margin: Number(gross) / 100, cost_of_sales: Number(cost) / 100,
-    expenses_total, purchases_total, withdrawals_total, net_flow: revenue - expenses_total - purchases_total - withdrawals_total,
+    expenses_total, purchases_total, withdrawals_total, net_flow: collected - expenses_total - purchases_total - withdrawals_total,
     result: Number(gross - BigInt(expenses_total) * 100n) / 100,
     journal: journal.sort(recent), expense_categories, sale_count, sales, purchases, expenses, series, channels, top};
 }
