@@ -1,4 +1,5 @@
 "use strict";
+import {remaining, salePayments} from "../src/model.js";
 
 const icons = {
   grid: '<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>',
@@ -47,7 +48,7 @@ const shortDate = new Intl.DateTimeFormat("fr-SN", {day: "2-digit", month: "shor
 const weekday = new Intl.DateTimeFormat("fr-SN", {weekday: "short", timeZone: "UTC"});
 const compactNumber = new Intl.NumberFormat("fr-SN", {notation: "compact", maximumFractionDigits: 1});
 const channels = {sale: "Vente", purchase: "Achat", adjust: "Ajustement", return: "Retour"};
-const journalTypes = {sale: "Vente", purchase: "Achat", expense: "Dépense", withdrawal: "Retrait"};
+const journalTypes = {sale: "Vente", purchase: "Achat", expense: "Dépense", withdrawal: "Retrait", settlement: "Règlement", refund: "Remboursement"};
 const financePresets = {today: "Aujourd’hui", month: "Ce mois", previous: "Mois précédent"};
 let toastTimer;
 let menuTrigger = menuControls[0];
@@ -201,7 +202,7 @@ function navigation() {
 
 function dashboardChart(report) {
   const max = Math.max(...report.series.map(p => p.total));
-  if (!max) return dashboardEmpty("trend", "Aucune vente sur la période", "Les ventes encaissées apparaîtront ici.");
+  if (!max) return dashboardEmpty("trend", "Aucune vente sur la période", "Les ventes validées apparaîtront ici.");
   const unit = 10 ** Math.floor(Math.log10(max / 3));
   const scale = Math.ceil(max / (unit * 3)) * unit * 3;
   const columns = report.series.map(point => {
@@ -226,7 +227,7 @@ function recentSales(items) {
     td("<strong>" + esc(sale.number) + "</strong>") + td(esc(pretty(sale.day))) +
     td(esc(sale.contact_name || "Client comptoir"), "wrap-cell") + td(esc(sale.method)) +
     td("<strong>" + esc(fcfa(sale.total)) + "</strong>", "numeric") +
-    td(sale.canceled_at ? badge("Annulée", "bad") : badge("Encaissée", "good")) +
+    td(sale.canceled_at ? badge("Annulée", "bad") : sale.balance ? badge("À payer · " + fcfa(sale.balance), "warn") : badge("Soldé", "good")) +
     td(button("Voir le ticket", "detail", {id: sale.id, small: true, style: "subtle"})),
     "Aucune vente sur cette période.");
 }
@@ -293,7 +294,7 @@ function dashboardActivity(report) {
   const outOfStock = alerts.filter(p => p.stock === 0).length;
   return '<section class="home-stats">' + titlebar("Aujourd’hui") + '<div class="stats">' +
     stat("Chiffre d’affaires", fcfa(dayRevenue), "Net des remises", "wallet") +
-    stat("Tickets de vente", number.format(daySales.length), "Ventes encaissées", "receipt", "violet") +
+    stat("Tickets de vente", number.format(daySales.length), "Ventes validées", "receipt", "violet") +
     stat("Marge brute", fcfa((dayRevenue * 100 - dayCost) / 100), "Après coût des produits vendus", "trend", "green") +
     stat("Stock à surveiller", number.format(alerts.length), outOfStock ? number.format(outOfStock) + " en rupture" :
       "Au seuil ou en rupture", "alert", "gold") + '</div></section>' +
@@ -397,10 +398,10 @@ function renderCash(report) {
   return heading("Caisse", "Enregistrez les ventes et retrouvez les tickets par date.",
     button("Nouvelle vente", "new-sale", {style: "primary", icon: "plus"})) +
     drawerPanel(currentDrawer) +
-    '<div class="stats">' + stat("Ventes encaissées", fcfa(report.revenue), "Pour la période affichée", "wallet") +
+    '<div class="stats">' + stat("Encaissements nets", fcfa(report.collected), "Acomptes et règlements inclus, remboursements déduits", "wallet") +
     stat("Tickets validés", report.sale_count, "Hors annulations", "receipt", "green") +
     stat("Articles vendus", number.format(report.units_sold), "Quantités des tickets validés", "box", "violet") +
-    stat("Panier moyen", report.sale_count ? fcfa(report.revenue / report.sale_count) : "—", "Montant encaissé par ticket validé", "wallet", "gold") + '</div>' +
+    stat("Panier moyen", report.sale_count ? fcfa(report.revenue / report.sale_count) : "—", "Valeur moyenne des ventes validées", "wallet", "gold") + '</div>' +
     '<section class="panel table-panel">' + titlebar("Historique des ventes") + dateToolbar("cash") +
     '<div class="toolbar">' + field("Rechercher un ticket", input("ticket-search", state.ticketQuery,
       'id="ticket-search" type="search" placeholder="Ticket, client ou paiement"')) +
@@ -585,9 +586,11 @@ function renderContacts() {
     button("Ajouter un " + label, "new-contact", {style: "primary", icon: "plus"})) +
     '<section class="panel">' + '<div class="toolbar">' + field("Type de contact",
       pick("contact-kind", [["client", "Clients"], ["supplier", "Fournisseurs"]], kind, 'id="contact-kind"')) + '</div>' +
-    table(["Nom", "Téléphone", "Note", "Actions"], items, item => td("<strong>" + esc(item.name) + "</strong>", "wrap-cell") +
+    table(["Nom", "Téléphone", "Note", ...(kind === "client" ? ["Reste à payer"] : []), "Actions"], items, item => td("<strong>" + esc(item.name) + "</strong>", "wrap-cell") +
       td(esc(item.phone || "—")) + td(esc(item.note || "—"), "wrap-cell") +
-      td(button("Modifier", "edit-contact", {id: item.id, small: true, style: "subtle"})),
+      (kind === "client" ? td(esc(fcfa(state.data.balances[item.id] || 0)), "numeric") : "") +
+      td((kind === "client" ? button("Compte client", "client-account", {id: item.id, small: true}) : "") +
+        button("Modifier", "edit-contact", {id: item.id, small: true, style: "subtle"})),
       "Aucun " + label + " enregistré.") + '</section>';
 }
 
@@ -626,7 +629,7 @@ function financeExportUrl() {
 function renderReports(report) {
   const period = currentPeriod("reports");
   const {kind, status} = state.finance;
-  const income = Object.entries(report.channels).filter(([, amount]) => amount > 0);
+  const income = Object.entries(report.channels).filter(([, amount]) => amount !== 0);
   const matchingPresets = Object.keys(financePresets).filter(preset => {
     const range = financeRange(preset);
     return range.start === period.start && range.end === period.end;
@@ -639,7 +642,7 @@ function renderReports(report) {
     '<div class="actions finance-presets">' + Object.entries(financePresets).map(([preset, label]) =>
       button(label, "finance-" + preset, {small: true, pressed: preset === activePreset})).join("") + '</div>' +
     dateToolbar("reports") + '</section>' +
-    '<div class="stats">' + stat("Ventes encaissées", fcfa(report.revenue), report.sale_count + " ticket(s) validé(s)", "wallet") +
+    '<div class="stats">' + stat("Encaissements nets", fcfa(report.collected), "Acomptes et règlements inclus, remboursements déduits", "wallet") +
     stat("Dépenses d’exploitation", fcfa(report.expenses_total), "Transport, emballage et autres frais", "receipt", "gold") +
     stat("Achats de marchandises", fcfa(report.purchases_total), "Commandes enregistrées sur la période", "box", "violet") +
     stat("Flux net de la période", fcfa(report.net_flow), "Encaissements moins achats, frais et retraits", "trend", report.net_flow < 0 ? "negative" : "green") + '</div>' +
@@ -939,7 +942,7 @@ function restore() {
 
 
 const orderLabels = {
-  sale: ["Nouvelle vente", "Encaisser la vente", "Vente encaissée."],
+  sale: ["Nouvelle vente", "Valider la vente", "Vente enregistrée."],
   purchase: ["Enregistrer un achat", "Valider l’achat", "Achat enregistré. Le stock a été mis à jour."],
   adjust: ["Ajuster le stock", "Valider l’ajustement", "Stock ajusté."]
 };
@@ -968,14 +971,17 @@ function orderForm(kind, initialLines = []) {
         '<span class="inline-help">Saisissez une quantité positive pour une entrée, négative pour une sortie.</span>') +
       '</div>' +
       field("Date", input("day", state.data.today, 'type="date" required max="' + state.data.today + '"')) +
-      (sale ? field("Paiement reçu par", pick("method", state.data.payments.map(p => [p, p]), state.data.payments[0])) : "") +
+      (sale ? field("Conditions de paiement", pick("payment_mode", [["full", "Paiement intégral"], ["partial", "Paiement partiel / à crédit"]], "full")) +
+        field("Montant reçu aujourd’hui (FCFA)", input("deposit", 0, 'type="number" min="0" step="1" inputmode="numeric"')) +
+        field("Échéance (facultative)", input("due", "", 'type="date"')) +
+        field("Paiement reçu par", pick("method", state.data.payments.map(p => [p, p]), state.data.payments[0])) : "") +
       (kind === "purchase" ? paymentField("Achat payé depuis") : "") +
       (!adjust ? field(sale ? "Client" : "Fournisseur", pick("contact_id", [["", sale ? "Client comptoir" : "Sans fournisseur"],
         ...people.map(p => [p.id, p.name])], "")) : "") +
       (sale ? field("Remise (FCFA)", input("discount", 0, 'type="number" min="0" step="1" required')) : "") +
       field(adjust ? "Motif de l’ajustement" : "Note", '<textarea name="note" maxlength="300" ' +
         (adjust ? 'required placeholder="Ex. inventaire physique, casse"' : '') + '></textarea>', true) +
-      (!adjust ? '<div class="field full order-total"><span>' + (sale ? "Total à encaisser" : "Total de l’achat") +
+      (!adjust ? '<div class="field full order-total"><span>' + (sale ? "Total de la vente" : "Total de l’achat") +
         '</span><strong id="order-total" aria-live="polite">' + fcfa(0) + '</strong></div>' : ''),
     submit: (data, current) => {
       const entries = [...current.querySelectorAll(".entry")];
@@ -990,7 +996,8 @@ function orderForm(kind, initialLines = []) {
       return api("/api/operations/" + kind, {
         request_key, lines, day: data.get("day"), note: data.get("note"),
         method: data.get("method") || "", contact_id: Number(data.get("contact_id")) || null,
-        discount: Number(data.get("discount")) || 0
+        discount: Number(data.get("discount")) || 0,
+        ...(sale && data.get("payment_mode") === "partial" ? {payment_mode: "partial", deposit: Number(data.get("deposit")), due: data.get("due")} : {})
       });
     },
     after: sale ? item => receipt(item) : undefined
@@ -1012,7 +1019,20 @@ function orderForm(kind, initialLines = []) {
       entry.querySelector('[data-remove-line]').disabled = entries.length === 1;
     }
     const target = form.querySelector("#order-total");
-    if (target) target.textContent = fcfa(sum - (Number(form.elements.discount?.value) || 0));
+    const total = sum - (Number(form.elements.discount?.value) || 0);
+    if (target) target.textContent = fcfa(total);
+    if (sale) {
+      const partial = form.elements.payment_mode.value === "partial";
+      for (const el of [form.elements.deposit, form.elements.due]) {
+        el.disabled = !partial;
+        el.closest("label").hidden = !partial;
+      }
+      form.elements.contact_id.required = partial;
+      form.elements.deposit.required = partial;
+      form.elements.deposit.max = Math.max(total - 1, 0);
+      form.elements.due.min = form.elements.day.value;
+      if (partial) target.textContent += " · Reste " + fcfa(Math.max(0, total - Number(form.elements.deposit.value)));
+    }
   };
   const addLine = (focus = false, preset = {}) => {
     if (container.children.length >= 100) {
@@ -1077,9 +1097,11 @@ function receipt(item) {
     '</div>' + cancellation + itemTable +
     (item.note ? '<p class="substat">' + esc(item.note) + '</p>' : "") +
     (item.discount ? '<p class="substat"><span>Remise</span><strong>' + esc(fcfa(item.discount)) + '</strong></p>' : "") +
-    (adjust ? "" : '<div class="order-total"><span>' + (sale ? "Total encaissé" : "Total de l’achat") +
+    (adjust ? "" : '<div class="order-total"><span>' + (sale ? "Total de la vente" : "Total de l’achat") +
       '</span><strong>' + esc(fcfa(item.total)) + '</strong></div>') +
+    (item.credit ? creditDetails(item) : "") +
     '<div class="actions dialog-actions no-print">' +
+    (item.credit && remaining(item) ? button("Enregistrer un règlement", "settle-sale", {id: item.id}) : "") +
     (sale && !item.canceled_at ? button("Annuler la vente", "cancel-sale", {id: item.id, style: "danger"}) : '') +
     (!adjust ? button("Imprimer", "print", {icon: "print", style: "primary"}) : '') + '</div>', true);
 }
@@ -1087,7 +1109,7 @@ function receipt(item) {
 function cancelSale(id) {
   dialogForm({title: "Annuler la vente",
     fields: '<p class="field full">Les articles seront remis en stock. Le ticket restera disponible avec le statut « Annulée ». ' +
-      'La caisse déduira le montant aujourd’hui sur le moyen de paiement du ticket. Effectuez le remboursement par ce même moyen.</p>' +
+      'Les sommes déjà reçues seront déduites de la caisse du jour, par moyen de paiement. Remboursez chaque somme par le moyen utilisé.</p>' +
       field("Motif d’annulation", '<textarea name="reason" maxlength="300" required></textarea>', true),
     label: "Confirmer l’annulation", danger: true,
     submit: form => api("/api/operations/" + id + "/cancel", formObject(form)), message: "Vente annulée. Le stock a été recrédité.",
@@ -1128,7 +1150,43 @@ function countStock(id) {
   });
 }
 
+function creditDetails(sale) {
+  const payments = salePayments(sale);
+  return '<section>' + titlebar(sale.canceled_at ? "Crédit annulé" : remaining(sale) ? "Reste à payer · " + fcfa(remaining(sale)) : "Soldé",
+    sale.credit.due ? "Échéance du " + pretty(sale.credit.due) : "") +
+    table(["Date", "Opération", "Moyen", "Montant reçu"], payments.map((p, i) => ({...p, initial: i === 0}))
+      .sort((a, b) => a.day.localeCompare(b.day)), p =>
+      td(esc(pretty(p.day))) + td(p.initial ? "Acompte" : "Règlement") + td(p.amount ? esc(p.method) : "—") +
+      td(esc(fcfa(p.amount)), "numeric"), "") + '</section>';
+}
+
+async function clientAccount(id) {
+  const sales = await api("/api/client-credit?id=" + id);
+  const client = state.data.contacts.find(c => c.id === id);
+  const total = sales.reduce((sum, s) => sum + s.balance, 0);
+  showDialog("Compte de " + client.name, titlebar("Reste à payer · " + fcfa(total)) +
+    table(["Ticket", "Échéance", "Montant", "Solde", "Actions"], sales, s =>
+      td(esc(s.number)) + td(s.credit.due ? esc(pretty(s.credit.due)) : "—") + td(esc(fcfa(s.total))) +
+      td(s.canceled_at ? "Annulé" : s.balance ? esc(fcfa(s.balance)) : "Soldé") +
+      td(button("Historique", "detail", {id: s.id, small: true}) +
+        (s.balance ? button("Enregistrer un règlement", "settle-sale", {id: s.id, small: true}) : "")),
+    "Aucune vente à crédit pour cette cliente.") + '<div class="actions">' + button("Fermer", "close-dialog") + '</div>', true);
+}
+
+async function settleTicket(id) {
+  const item = await api("/api/operations/" + id);
+  const balance = remaining(item);
+  const request_key = requestKey();
+  dialogForm({title: "Enregistrer un règlement · " + item.number, label: "Valider le règlement",
+    fields: '<p class="field full">' + esc(item.contact_name + " · Reste à payer " + fcfa(balance)) + '</p>' +
+      field("Montant reçu (FCFA)", input("amount", balance, 'type="number" min="1" max="' + balance + '" step="1" required')) +
+      field("Date du règlement", input("day", state.data.today, 'type="date" min="' + item.day + '" max="' + state.data.today + '" required')) +
+      paymentField("Moyen de paiement"), submit: form => api("/api/operations/" + id + "/settle",
+        {...formObject(form), request_key, amount: Number(form.get("amount"))}), message: "Règlement enregistré.", after: receipt});
+}
+
 const commands = {
+  "client-account": clientAccount, "settle-sale": settleTicket,
   "drawer-open": () => editDrawer("open"), "drawer-close": () => editDrawer("close"),
   "drawer-withdraw": () => editDrawer("withdraw"), "drawer-classify": () => editDrawer("classify"),
   "count-stock": countStock,

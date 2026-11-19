@@ -52,6 +52,19 @@ export function backupData(raw) {
       subtotal += line.quantity * line.unit;
     }
     require(bounded(o.discount, 0, o.kind === "sale" ? subtotal : 0) && o.total === subtotal - o.discount);
+    if (o.credit !== undefined) {
+      const c = o.credit;
+      require(c && o.kind === "sale" && o.contact_id && bounded(c.deposit, 0, o.total - 1) &&
+        (c.due === "" || (isDay(c.due) && c.due >= o.day)) && Array.isArray(c.payments));
+      let balance = o.total - c.deposit;
+      for (const p of c.payments) {
+        require(p && isDay(p.day) && p.day >= o.day && (!o.canceled_at || p.day <= o.canceled_at.slice(0, 10)) &&
+          PAYMENTS.includes(p.method) && bounded(p.amount, 1, balance) &&
+          /^[A-Za-z0-9-]{16,64}$/.test(p.request_key) && string(p.signature, 5000));
+        balance -= p.amount;
+      }
+      require(new Set(c.payments.map(p => p.request_key)).size === c.payments.length);
+    }
   }
   const balances = new Map();
   for (const m of [...movements].sort((a, b) => a.id - b.id)) {

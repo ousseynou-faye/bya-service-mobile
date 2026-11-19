@@ -1,4 +1,4 @@
-import {attempt, integer, isDay, payment, PAYMENTS, today, writableDay} from "./model.js";
+import {attempt, integer, isDay, payment, PAYMENTS, salePayments, today, writableDay} from "./model.js";
 
 const money = (value, label) => integer(value, label, 0, Number.MAX_SAFE_INTEGER);
 
@@ -16,7 +16,9 @@ export function drawer(state, day = today()) {
     if (reversal) row.reversals += column === "sales" ? -amount : amount;
   }
   for (const o of state.operations) {
-    if (o.kind !== "adjust") record(o, o.kind, o.total, o.kind === "sale" ? "sales" : "purchases");
+    if (o.kind === "sale") {
+      for (const p of salePayments(o)) record({...p, canceled_at: o.canceled_at}, "sale", p.amount, "sales");
+    } else if (o.kind === "purchase") record(o, o.kind, o.total, "purchases");
   }
   for (const e of state.expenses) record(e, "expense", e.amount, "expenses");
   const withdrawals = (state.withdrawals || []).filter(w => w.day === day);

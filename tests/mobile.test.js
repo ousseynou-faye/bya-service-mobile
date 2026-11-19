@@ -6,6 +6,57 @@ import {activateProduct, addExpense, addOperation, blank, cancelExpense, cancelS
 import {bootstrap, productHistory, replenishment, report} from "../app/src/reports.js";
 import {backupData, backupFile} from "../app/src/backup.js";
 import {changeDrawer, drawer} from "../app/src/drawer.js";
+import {remaining, saveContact, settleSale} from "../app/src/model.js";
+
+test("Pack à 7 000 FCFA, acompte Wave puis solde en espèces deux jours après", () => {
+  const {state, item} = fixture();
+  const day = "2025-04-10", later = "2025-04-12";
+  const client = saveContact(state, {kind:"client", name:"Cliente exemple"});
+  saveProduct(state, {...product, price:7000}, item.id);
+  const data = {day, contact_id:client.id, request_key:"vente-credit-00001", payment_mode:"partial", method:"Wave",
+    deposit:3000, due:later, lines:[{product_id:item.id, quantity:1}]};
+  assert.throws(() => addOperation(state, "sale", {...data, contact_id:null}), /cliente/);
+  assert.throws(() => addOperation(state, "sale", {...data, deposit:7001}), /Acompte/);
+  const ticket = addOperation(state, "sale", data);
+  assert.equal(remaining(ticket), 4000);
+  assert.equal(bootstrap(state).balances[client.id], 4000);
+  changeDrawer(state, "open", {day, opening:0});
+  changeDrawer(state, "close", {day, expected:0, counted:0});
+  const pay = {day:later, amount:4000, method:"Espèces", request_key:"reglement-test-0001"};
+  assert.throws(() => settleSale(state, {...pay, day}, ticket.id), /clôturée/);
+  assert.throws(() => settleSale(state, {...pay, amount:4001}, ticket.id), /Montant/);
+  assert.equal(remaining(settleSale(state, pay, ticket.id)), 0);
+  settleSale(state, pay, ticket.id);
+  const first = report(state, day, day), second = report(state, later, later);
+  assert.deepEqual([first.revenue, first.collected, first.channels.Wave, second.revenue, second.net_flow], [7000,3000,3000,0,4000]);
+  assert.deepEqual([drawer(state,day).expected, drawer(state,later).expected, item.stock], [0,4000,4]);
+  assert.deepEqual(backupData(JSON.parse(backupFile(state))), state);
+  cancelSale(state, {reason:"Retour"}, ticket.id);
+  assert.equal(drawer(state).channels.find(c=>c.method==="Wave").reversals,-3000);
+  assert.equal(drawer(state).channels[0].reversals,-4000);
+  assert.equal(item.stock,5);
+  assert.deepEqual(backupData(JSON.parse(backupFile(state))), state);
+});
+
+test("Vente à crédit sans acompte, échéance et anciens tickets payés", () => {
+  const {state, item} = fixture();
+  const client = saveContact(state, {kind:"client", name:"Cliente"});
+  const data = {day:"2025-03-03", method:"Wave", contact_id:client.id,
+    request_key:"ancienne-vente-0001", lines:[{product_id:item.id, quantity:1}]};
+  const old = addOperation(state, "sale", data);
+  assert.equal(remaining(old), 0);
+  const credit = {...data, payment_mode:"partial", request_key:"nouvelle-vente-00001", deposit:0};
+  assert.throws(() => addOperation(state, "sale", {...credit, due:"2025-03-02"}), /échéance/);
+  const sale = addOperation(state, "sale", credit);
+  assert.equal(remaining(sale), 2000);
+  assert.equal(report(state, data.day, data.day).collected, 2000);
+  settleSale(state, {day:data.day, amount:500, method:"Espèces", request_key:"fraction-0000000001"}, sale.id);
+  assert.equal(bootstrap(state).balances[client.id], 1500);
+  const backup = JSON.parse(backupFile(state));
+  assert.deepEqual(backupData(backup), state);
+  backup.data.operations.at(-1).credit.payments[0].amount = 2001;
+  assert.throws(() => backupData(backup), /incohérente/);
+});
 
 test("Clôture avec écart, paiement Wave et conservation de la journée", () => {
   const {state, item} = fixture();
