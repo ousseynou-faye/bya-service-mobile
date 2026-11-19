@@ -49,6 +49,7 @@ export function report(state, start = offset(today(), -29), end = today()) {
   const best = new Map(), categories = new Map();
   const products = new Map(state.products.map(p => [p.id, p]));
   let revenue = 0, cost = 0n, sale_count = 0, purchases_total = 0, expenses_total = 0;
+  let discounts = 0, units_sold = 0;
   for (const operation of inPeriod) {
     const {id, kind, day, contact_name, method, total, note, canceled_at, lines} = operation;
     if (kind === "adjust") continue;
@@ -64,11 +65,13 @@ export function report(state, start = offset(today(), -29), end = today()) {
     sales.push({...item, cost: Number(lineCost)});
     if (canceled_at) continue;
     revenue += total;
+    discounts += operation.discount || 0;
     cost += lineCost;
     sale_count++;
     channels[method] += total;
     series[(Date.parse(day) - Date.parse(start)) / DAY].total += total;
     for (const line of lines) {
+      units_sold += line.quantity;
       const row = best.get(line.product_id) ?? {product_id: line.product_id, name: products.get(line.product_id).name, quantity: 0, gross: 0};
       row.quantity += line.quantity;
       row.gross += line.quantity * line.unit;
@@ -86,7 +89,8 @@ export function report(state, start = offset(today(), -29), end = today()) {
   const gross = BigInt(revenue) * 100n - cost;
   const top = [...best.values()].sort((a, b) => b.quantity - a.quantity || alphabetical(a, b)).slice(0, 5);
   const expense_categories = [...categories].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], "fr"));
-  return {revenue, gross_margin: Number(gross) / 100, cost_of_sales: Number(cost) / 100,
+  return {revenue, discounts, units_sold, gross_sales: revenue + discounts,
+    gross_margin: Number(gross) / 100, cost_of_sales: Number(cost) / 100,
     expenses_total, purchases_total, net_flow: revenue - expenses_total - purchases_total,
     result: Number(gross - BigInt(expenses_total) * 100n) / 100,
     journal: journal.sort(recent), expense_categories, sale_count, sales, purchases, expenses, series, channels, top};
