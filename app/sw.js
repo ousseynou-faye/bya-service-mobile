@@ -1,6 +1,6 @@
 const scope = self.registration.scope;
 const prefix = `bya-mobile:${scope}:`;
-const cacheName = prefix + "2.3.0";
+const cacheName = prefix + "2.4.0";
 const landing = new URL("index.html", scope).href;
 const files = ["index.html", "manifest.webmanifest", "assets/accueil.webp", "assets/favicon.svg",
   "assets/icon-192.png", "assets/icon-512.png", "ui/app.js", "ui/theme.js", "ui/styles.css", "ui/home.css",

@@ -1,4 +1,4 @@
-export const VERSION = "2.3.0";
+export const VERSION = "2.4.0";
 export const PAYMENTS = ["Espèces", "Wave", "Orange Money", "Carte", "Virement"];
 export const CATEGORIES = ["Savons", "Soins du visage", "Soins du corps", "Soins des pieds", "Accessoires", "Packs", "Autres"];
 export const MAX_PRICE = 10_000_000;
