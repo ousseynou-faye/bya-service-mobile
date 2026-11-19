@@ -211,7 +211,8 @@ test("Le cache hors connexion couvre les fichiers et résout une publication en 
   let installing;
   handlers.get("install")({waitUntil: promise => { installing = promise; }});
   await installing;
-  assert.equal(cached.size, 18);
+  assert.equal(cached.size, 19);
+  assert.ok(cached.has(scope + "src/outreach.js"));
   let response;
   handlers.get("fetch")({request: {url: scope, method: "GET", mode: "navigate"}, respondWith: p => { response = p; }});
   assert.match((await response).toString("utf8"), /Bya Service/);

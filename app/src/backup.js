@@ -22,7 +22,7 @@ export function backupData(raw) {
     bounded(p.stock, 0, MAX_STOCK) && (p.active === 1 || (p.active === 0 && p.stock === 0))));
   require(new Set(products.map(p => p.sku.toLowerCase())).size === products.length);
   require(contacts.every(c => ["client", "supplier"].includes(c.kind) && string(c.name, 120) && c.name &&
-    string(c.phone, 40) && string(c.note, 300)));
+    string(c.phone, 40) && string(c.note, 300) && (c.offers === undefined || typeof c.offers === "boolean")));
   for (const list of [operations, expenses]) {
     require(list.every(o => /^[A-Za-z0-9-]{16,64}$/.test(o.request_key) && string(o.signature, 100_000) && isDay(o.day) &&
       (o.canceled_at === null || (string(o.canceled_at, 40) && isDay(o.canceled_at.slice(0, 10))))));
