@@ -1,4 +1,4 @@
-import {isDay} from "./model.js";
+import {attempt, find, isDay} from "./model.js";
 
 export function whatsappNumber(phone) {
   let digits = String(phone || "").trim().replace(/[\s().-]/g, "");
@@ -6,6 +6,24 @@ export function whatsappNumber(phone) {
   digits = digits.replace(/^(?:\+|00)/, "");
   if (digits.startsWith("221") && digits.length !== 12) return "";
   return /^[1-9]\d{7,14}$/.test(digits) && (digits.length >= 10 || /^\s*(\+|00)/.test(phone)) ? digits : "";
+}
+
+export function recordOffer(state, data, day) {
+  const preview = prepareOffer(state, data, day);
+  const offers = state.offers ??= [];
+  const {request_key, signature, previous} = attempt(offers, "offer", data);
+  if (previous) return {...preview, id: previous.id};
+  const product = state.products.find(p => p.id === data.productId);
+  const id = offers.reduce((last, o) => Math.max(last, o.id), 0) + 1;
+  offers.push({id, request_key, signature, clientId:data.clientId, productId:product.id, productName:product.name,
+    kind:data.kind, price:data.kind === "promo" ? data.price : product.price, day, sentDay:null});
+  return {...preview, id};
+}
+
+export function confirmOffer(state, id, day) {
+  const offer = find(state.offers || [], id, "Offre introuvable.");
+  offer.sentDay ??= day;
+  return {clientId:offer.clientId};
 }
 
 export function prepareOffer(state, data, day) {

@@ -48,7 +48,8 @@ export function clientSummary(state, id) {
   const purchases = sales.filter(o => !o.canceled_at).slice(0, 5).map(o => ({
     id: o.id, day: o.day, total: o.total, articles: o.lines.map(l => l.quantity + " × " + l.name).join(", ")
   }));
-  return {credits, purchases, due, total: open.reduce((sum, s) => sum + s.balance, 0)};
+  const offers = (state.offers || []).filter(o => o.clientId === id).sort(recent);
+  return {credits, purchases, offers, due, total: open.reduce((sum, s) => sum + s.balance, 0)};
 }
 
 export function replenishment(state) {

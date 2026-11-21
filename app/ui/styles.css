@@ -741,6 +741,32 @@ dialog::backdrop { background: var(--backdrop); }
   .form-grid { grid-template-columns: 1fr; }
 }
 
+.product-photo { display: block; width: 46px; height: 46px; flex: none; object-fit: cover; border-radius: 10px; }
+.photo-editor { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 12px; }
+.photo-editor .product-photo, .product-profile-heading .product-photo { width: 72px; height: 72px; }
+.photo-editor [hidden], .offer-confirm[hidden] { display: none; }
+.offer-confirm { margin-top: 14px; padding: 12px; border-radius: 10px; background: var(--accent-soft); }
+.offer-confirm p { margin-bottom: 8px; }
+.sale-section { grid-column: 1 / -1; min-width: 0; margin: 0; padding: 14px; border: 1px solid var(--border);
+  border-radius: 12px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.sale-section legend { padding: 0 7px; color: var(--accent-ink); font-weight: 700; }
+.sale-summary { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin: 0; padding: 12px; gap: 8px; border-radius: 10px; background: var(--raised); }
+.sale-summary dt { color: var(--muted); font-size: 13px; }
+.sale-summary dd { margin: 4px 0 0; font-weight: 700; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+.sale-summary > div:last-child dd { color: var(--accent-ink); }
+@media screen and (max-width: 620px) {
+  #product-results td[data-label="Produit"] { display: block; }
+  #product-results td[data-label="Produit"]::before { display: none; }
+  #product-results .row-product { display: flex; align-items: center; }
+  #product-results .product-photo, #product-results .product-icon { display: inline-grid; height: 58px; width: 58px; }
+  #product-results td[data-label="Prix de vente"] .cell-value, #product-results td[data-label="Stock"] .cell-value { font-weight: 700; }
+  .sale-section { grid-template-columns: minmax(0, 1fr); padding: 10px; }
+  .sale-summary { display: block; }
+  .sale-summary > div { display: flex; align-items: baseline; justify-content: space-between; padding: 4px 0; gap: 8px; }
+  .sale-summary dd { margin: 0; text-align: end; }
+  .sale-summary > div:last-child { border-top: 1px solid var(--border); margin-top: 5px; padding-top: 9px; }
+}
 @media (prefers-reduced-motion: reduce) { .btn { transition: none; } }
 
 @media print {

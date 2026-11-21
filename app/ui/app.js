@@ -469,9 +469,13 @@ function productTone(p) {
 }
 
 function productName(p) {
-  return '<span class="row-product"><span class="product-icon ' + productTone(p) + '">' +
-    icon(p.category === "Savons" ? "leaf" : "box") + '</span><span><strong>' + esc(p.name) +
+  return '<span class="row-product">' + productVisual(p) + '<span><strong>' + esc(p.name) +
     '</strong><span class="item-sub">' + esc(p.sku) + '</span></span></span>';
+}
+
+function productVisual(p) {
+  return p.photo ? '<img class="product-photo" src="' + esc(p.photo) + '" loading="lazy" alt="">' :
+    '<span class="product-icon ' + productTone(p) + '">' + icon(p.category === "Savons" ? "leaf" : "box") + '</span>';
 }
 
 function productStatus(p) {
@@ -486,10 +490,9 @@ function productRows() {
     (state.productStatus === "all" || Boolean(p.active) === (state.productStatus === "active")) &&
     (!state.category || p.category === state.category) &&
     searchText(p.name + " " + p.sku).includes(query));
-  return table(["Produit", "Catégorie", "Prix de vente", "Coût moyen", "Stock", "Statut", "Actions"], items, p =>
-    td(productName(p)) + td(esc(p.category)) + td(esc(fcfa(p.price)), "numeric") +
+  return table(["Produit", "Prix de vente", "Stock", "Catégorie", "Coût moyen", "Statut", "Actions"], items, p =>
+    td(productName(p)) + td(esc(fcfa(p.price)), "numeric") + td(number.format(p.stock), "numeric") + td(esc(p.category)) +
     td(esc(p.average === 0 && p.stock === 0 ? "—" : fcfa(p.average / 100)), "numeric") +
-    td(number.format(p.stock), "numeric") +
     td(productStatus(p)) +
     td('<div class="actions">' + button("Fiche", "product-history", {id: p.id, small: true, style: "subtle"}) +
       button("Modifier", "edit-product", {id: p.id, small: true, style: "subtle"}) +
@@ -962,21 +965,81 @@ dialog.addEventListener("cancel", event => {
 
 const formObject = form => Object.fromEntries(form.entries());
 
+async function preparePhoto(file) {
+  if (!["image/jpeg", "image/png", "image/webp"].includes(file.type) || file.size > 15 * 1024 * 1024)
+    throw new Error("Choisissez une photo JPEG, PNG ou WebP de 15 Mo maximum.");
+  const source = await new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(new Error("Impossible de lire cette photo."));
+    reader.readAsDataURL(file);
+  });
+  const img = new Image();
+  img.src = source;
+  try { await img.decode(); } catch { throw new Error("Cette image ne peut pas être ouverte."); }
+  const scale = Math.min(1, 640 / Math.max(img.naturalWidth, img.naturalHeight));
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(1, Math.round(img.naturalWidth * scale));
+  canvas.height = Math.max(1, Math.round(img.naturalHeight * scale));
+  const ctx = canvas.getContext("2d");
+  ctx.fillStyle = "#fff";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+  return canvas.toDataURL("image/jpeg", 0.72);
+}
+
 function editProduct(id) {
   const item = state.data.products.find(p => p.id === id) || {};
   const options = state.data.categories.map(c => '<option value="' + esc(c) + '"></option>').join("");
-  dialogForm({title: id ? "Modifier le produit" : "Ajouter un produit",
+  let photo, revision = 0, processing = false, photoError = "";
+  const form = dialogForm({title: id ? "Modifier le produit" : "Ajouter un produit",
     fields: field("Nom du produit", input("name", item.name, 'maxlength="120" required'), true) +
       field("Référence", input("sku", item.sku, 'maxlength="40" required placeholder="Ex. SAV-001"')) +
       field("Catégorie", input("category", item.category, 'list="categories" maxlength="60" required') +
         '<datalist id="categories">' + options + '</datalist>') +
       field("Prix de vente (FCFA)", input("price", item.price, 'type="number" min="0" max="10000000" step="1" required')) +
       field("Seuil d’alerte", input("threshold", item.threshold ?? 5, 'type="number" min="0" max="100000" step="1" required')) +
+      '<div class="photo-editor field full"><div data-photo-preview>' + productVisual(item) + '</div><div>' +
+      field("Photo facultative du produit ou du pack", '<input type="file" data-photo-file accept="image/jpeg,image/png,image/webp">') +
+      '<button type="button" class="btn subtle small" data-remove-photo' + (item.photo ? '' : ' hidden') + '>Retirer la photo</button></div></div>' +
       (!id ? '<p class="field full inline-help">Le stock démarre à zéro. Enregistrez un achat pour saisir la première entrée.</p>' : ''),
     label: "Enregistrer le produit",
-    submit: form => api("/api/products" + (id ? "/" + id : ""), {...formObject(form),
-      price: Number(form.get("price")), threshold: Number(form.get("threshold"))}),
+    submit: data => {
+      if (processing || photoError) throw new Error(photoError || "La photo est en cours de préparation.");
+      return api("/api/products" + (id ? "/" + id : ""), {...formObject(data), photo,
+        price: Number(data.get("price")), threshold: Number(data.get("threshold"))});
+    },
     message: id ? "Produit mis à jour." : "Produit ajouté au catalogue."});
+  const file = form.querySelector("[data-photo-file]");
+  const remove = form.querySelector("[data-remove-photo]");
+  const preview = form.querySelector("[data-photo-preview]");
+  file.addEventListener("change", async () => {
+    if (!file.files.length) return;
+    const current = ++revision;
+    processing = true;
+    photoError = "";
+    remove.hidden = false;
+    formError(form, "");
+    try {
+      const value = await preparePhoto(file.files[0]);
+      if (current !== revision) return;
+      photo = value;
+      preview.innerHTML = productVisual({...item, photo});
+    } catch (error) {
+      if (current === revision) { photoError = error.message; formError(form, photoError); }
+    } finally { if (current === revision) processing = false; }
+  });
+  remove.addEventListener("click", () => {
+    revision++;
+    processing = false;
+    photoError = "";
+    photo = null;
+    file.value = "";
+    preview.innerHTML = productVisual({...item, photo});
+    remove.hidden = true;
+    form.dataset.dirty = "true";
+    formError(form, "");
+  });
 }
 
 function toggleProduct(id) {
@@ -1034,13 +1097,16 @@ function openOffer(id) {
     '<section class="offer-preview" hidden><p class="offer-recipient"></p>' +
     field("Message à relire et à personnaliser", '<textarea name="offer-text" rows="9" maxlength="3000"></textarea>', true) +
     '<div class="form-footer"><button type="button" class="btn secondary" data-revise>Revenir à l’offre</button>' +
-    '<a class="btn primary" target="_blank" rel="noopener noreferrer" data-chat>Ouvrir WhatsApp</a></div></section>', true);
+    '<a class="btn primary" target="_blank" rel="noopener noreferrer" data-chat>Ouvrir WhatsApp</a></div>' +
+    '<div class="offer-confirm" hidden><p>Après avoir envoyé le message dans WhatsApp, confirmez son envoi ici.</p>' +
+    button("Marquer comme envoyée", "offer-sent", {icon:"receipt"}) + '</div></section>', true);
   const form = dialog.querySelector("form");
   const preview = dialog.querySelector(".offer-preview");
   const editor = preview.querySelector("textarea");
   const chat = preview.querySelector("[data-chat]");
   const {kind, price, until} = form.elements;
-  let draft;
+  const confirmBox = preview.querySelector(".offer-confirm");
+  let draft, lastValues, key;
   function updateLink() {
     const message = editor.value.trim();
     if (message) chat.href = "https://wa.me/" + draft.phone + "?text=" + encodeURIComponent(message);
@@ -1055,12 +1121,20 @@ function openOffer(id) {
   });
   form.addEventListener("submit", async event => {
     event.preventDefault();
+    const submit = form.querySelector('[type="submit"]');
+    if (submit.disabled) return;
+    submit.disabled = true;
     const data = new FormData(form);
     try {
-      const result = await api("/api/offer-preview", {kind: data.get("kind"), price: Number(data.get("price")), until: data.get("until"),
-        clientId: Number(data.get("clientId")), productId: Number(data.get("productId"))});
+      const values = {kind: data.get("kind"), price: Number(data.get("price")), until: data.get("until"),
+        clientId: Number(data.get("clientId")), productId: Number(data.get("productId"))};
+      const signature = JSON.stringify(values);
+      if (lastValues !== signature) { key = requestKey(); lastValues = signature; }
+      const result = await api("/api/offers", {...values, request_key:key});
       if (!form.isConnected || !dialog.open) return;
       draft = result;
+      confirmBox.hidden = true;
+      confirmBox.querySelector("button").dataset.id = draft.id;
       editor.value = draft.message;
       preview.querySelector(".offer-recipient").textContent = draft.name + " · +" + draft.phone;
       formError(form, "");
@@ -1069,7 +1143,9 @@ function openOffer(id) {
       updateLink();
       editor.focus();
     } catch (error) { formError(form, error.message); }
+    finally { submit.disabled = false; }
   });
+  chat.addEventListener("click", () => { if (chat.hasAttribute("href")) confirmBox.hidden = false; });
   editor.addEventListener("input", () => { form.dataset.dirty = "true"; updateLink(); });
   preview.querySelector("[data-revise]").addEventListener("click", () => {
     if (editor.value !== draft.message && !confirm("Revenir à l’offre et remplacer le texte personnalisé ?")) return;
@@ -1142,10 +1218,13 @@ function orderForm(kind, initialLines = []) {
   const possible = sale ? list.filter(p => p.stock > 0) : list;
   const [title, label, message] = orderLabels[kind];
   const form = dialogForm({title, label, message, wide: true,
-    fields: '<div class="field full"><div id="order-lines"></div>' +
+    fields: (sale ? '<fieldset class="sale-section"><legend>Articles du panier</legend>' : '') +
+      '<div class="field full"><div id="order-lines"></div>' +
       (!adjust ? '<div class="actions">' + button("Ajouter une ligne", "add-line", {icon: "plus", small: true}) + '</div>' :
         '<span class="inline-help">Saisissez une quantité positive pour une entrée, négative pour une sortie.</span>') +
       '</div>' +
+      (sale ? field("Remise (FCFA)", input("discount", 0, 'type="number" min="0" step="1" required')) +
+        '</fieldset><fieldset class="sale-section"><legend>Paiement</legend>' : "") +
       field("Date", input("day", state.data.today, 'type="date" required max="' + state.data.today + '"')) +
       (sale ? field("Conditions de paiement", pick("payment_mode", [["full", "Paiement intégral"], ["partial", "Paiement partiel / à crédit"]], "full")) +
         field("Montant reçu aujourd’hui (FCFA)", input("deposit", 0, 'type="number" min="0" step="1" inputmode="numeric"')) +
@@ -1154,11 +1233,12 @@ function orderForm(kind, initialLines = []) {
       (kind === "purchase" ? paymentField("Achat payé depuis") : "") +
       (!adjust ? field(sale ? "Client" : "Fournisseur", pick("contact_id", [["", sale ? "Client comptoir" : "Sans fournisseur"],
         ...people.map(p => [p.id, p.name])], "")) : "") +
-      (sale ? field("Remise (FCFA)", input("discount", 0, 'type="number" min="0" step="1" required')) : "") +
       field(adjust ? "Motif de l’ajustement" : "Note", '<textarea name="note" maxlength="300" ' +
         (adjust ? 'required placeholder="Ex. inventaire physique, casse"' : '') + '></textarea>', true) +
-      (!adjust ? '<div class="field full order-total"><span>' + (sale ? "Total de la vente" : "Total de l’achat") +
-        '</span><strong id="order-total" aria-live="polite">' + fcfa(0) + '</strong></div>' : ''),
+      (sale ? '<dl class="sale-summary" aria-live="polite"><div><dt>Total</dt><dd id="order-total"></dd></div>' +
+        '<div><dt>Reçu</dt><dd id="sale-received"></dd></div><div><dt>Reste à payer</dt><dd id="sale-balance"></dd></div></dl></fieldset>' :
+        !adjust ? '<div class="field full order-total"><span>Total de l’achat</span><strong id="order-total" aria-live="polite">' +
+          fcfa(0) + '</strong></div>' : ''),
     submit: (data, current) => {
       const entries = [...current.querySelectorAll(".entry")];
       const lines = entries.map(entry => {
@@ -1206,8 +1286,13 @@ function orderForm(kind, initialLines = []) {
       form.elements.contact_id.required = partial;
       form.elements.deposit.required = partial;
       form.elements.deposit.max = Math.max(total - 1, 0);
+      form.elements.discount.max = Math.max(0, sum);
       form.elements.due.min = form.elements.day.value;
-      if (partial) target.textContent += " · Reste " + fcfa(Math.max(0, total - Number(form.elements.deposit.value)));
+      const received = partial ? form.elements.deposit.valueAsNumber : total;
+      const valid = total >= 0 && (!partial || form.elements.deposit.validity.valid && received < total);
+      if (total < 0) target.textContent = "—";
+      form.querySelector("#sale-received").textContent = Number.isFinite(received) && received >= 0 ? fcfa(received) : "—";
+      form.querySelector("#sale-balance").textContent = valid ? fcfa(total - received) : "—";
     }
   };
   const addLine = (focus = false, preset = {}) => {
@@ -1339,7 +1424,7 @@ function creditDetails(sale) {
 
 async function clientAccount(id) {
   const client = state.data.contacts.find(c => c.id === id);
-  const {credits, purchases, due, total} = await api("/api/client-summary?id=" + id);
+  const {credits, purchases, offers, due, total} = await api("/api/client-summary?id=" + id);
   const status = due < state.data.today ? "En retard" : due === state.data.today ? "Aujourd’hui" : "";
   const open = credits.filter(s => s.balance > 0);
   showDialog(client.name, '<div class="client-summary"><div><small>Reste à payer</small><strong>' +
@@ -1357,7 +1442,14 @@ async function clientAccount(id) {
       td(s.canceled ? "Annulé" : s.balance ? esc(fcfa(s.balance)) : "Soldé") +
       td(button("Historique", "detail", {id: s.id, small: true}) +
         (s.balance ? button("Enregistrer un règlement", "settle-sale", {id: s.id, small: true}) : "")),
-    "Aucune vente à crédit pour cette cliente."), true);
+    "Aucune vente à crédit pour cette cliente.") +
+    titlebar("Historique des offres WhatsApp") +
+    table(["Préparée le", "Produit", "Offre", "Statut", "Suivi"], offers, o =>
+      td(esc(pretty(o.day))) + td(esc(o.productName), "wrap-cell") +
+      td((o.kind === "promo" ? "Promotion" : "Nouveauté") + " · " + esc(fcfa(o.price))) +
+      td(badge(o.sentDay ? "Envoyée" : "Préparée", o.sentDay ? "good" : "")) +
+      td(o.sentDay ? esc(pretty(o.sentDay)) : button("Marquer comme envoyée", "offer-sent", {id:o.id, small:true})),
+      "Aucune offre enregistrée pour cette cliente."), true);
 }
 
 async function settleTicket(id) {
@@ -1373,6 +1465,11 @@ async function settleTicket(id) {
 }
 
 const commands = {
+  "offer-sent": async id => {
+    const result = await api("/api/offers/" + id + "/sent", {});
+    await clientAccount(result.clientId);
+    toast("Offre marquée comme envoyée.");
+  },
   "expected-payments": expectedPayments,
   "choose-ticket": async id => {
     const {credits} = await api("/api/client-summary?id=" + id);

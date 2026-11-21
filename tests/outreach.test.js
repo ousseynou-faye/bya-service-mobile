@@ -1,8 +1,52 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import {blank, saveContact} from "../app/src/model.js";
+import {addOperation, blank, saveContact, saveProduct} from "../app/src/model.js";
 import {backupData, backupFile} from "../app/src/backup.js";
-import {prepareOffer, whatsappNumber} from "../app/src/outreach.js";
+import {confirmOffer, prepareOffer, recordOffer, whatsappNumber} from "../app/src/outreach.js";
+import {clientSummary} from "../app/src/reports.js";
+
+test("Photo facultative, remplacement, retrait et restauration d’un ancien catalogue", () => {
+  const state = blank();
+  const data = {sku:"P1", name:"Pack découverte", category:"Packs", price:7000};
+  const product = saveProduct(state, data);
+  const old = JSON.parse(backupFile(state));
+  delete old.data.offers;
+  assert.deepEqual(backupData(old).offers, []);
+  assert.equal(product.photo, undefined);
+  const photo = "data:image/jpeg;base64,/9j/2Q==";
+  saveProduct(state, {...data, photo}, product.id);
+  saveProduct(state, {...data, price:6500}, product.id);
+  assert.equal(backupData(JSON.parse(backupFile(state))).products[0].photo, photo);
+  assert.throws(() => saveProduct(state, {...data, photo:"https://example.com/photo"}, product.id));
+  saveProduct(state, {...data, photo:null}, product.id);
+  assert.equal(product.photo, null);
+});
+
+test("Une offre préparée attend la confirmation et conserve le produit et les dates après restauration", () => {
+  const state = blank();
+  const data = {sku:"P1", name:"Pack découverte", category:"Packs", price:7000};
+  const product = saveProduct(state, data);
+  addOperation(state, "adjust", {request_key:"stock-test-offre-001", note:"Inventaire", lines:[{product_id:product.id,quantity:2}]});
+  const a = saveContact(state, {name:"Awa", phone:"770000000", kind:"client", offers:true});
+  const offer = {clientId:a.id, productId:product.id, kind:"promo", price:5500, request_key:"offre-preparee-0001"};
+  const get = () => clientSummary(state, a.id).offers;
+  prepareOffer(state, offer, "2026-01-10");
+  assert.equal(get().length, 0);
+  const draft = recordOffer(state, offer, "2026-01-10");
+  recordOffer(state, offer, "2026-01-10");
+  assert.equal(get().length, 1);
+  assert.equal(get()[0].sentDay, null);
+  assert.deepEqual(clientSummary(state, 999).offers, []);
+  saveProduct(state, {...data, name:"Pack renommé"}, product.id);
+  confirmOffer(state, draft.id, "2026-01-12");
+  confirmOffer(state, draft.id, "2026-01-13");
+  assert.deepEqual([get()[0].day, get()[0].sentDay, get()[0].productName, get()[0].price],
+    ["2026-01-10", "2026-01-12", "Pack découverte", 5500]);
+  const backup = JSON.parse(backupFile(state));
+  assert.deepEqual(backupData(backup),state);
+  backup.data.offers[0].clientId = 999;
+  assert.throws(() => backupData(backup));
+});
 
 test("Numéros sénégalais et internationaux utilisés par le lien de discussion", () => {
   for (const value of ["77 000 00 00", "+221 77 000 00 00", "00221-77-000-00-00", "221770000000"])
