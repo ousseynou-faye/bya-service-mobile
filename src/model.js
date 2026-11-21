@@ -1,4 +1,4 @@
-export const VERSION = "2.8.0";
+export const VERSION = "2.9.0";
 export const PAYMENTS = ["Espèces", "Wave", "Orange Money", "Carte", "Virement"];
 export const CATEGORIES = ["Savons", "Soins du visage", "Soins du corps", "Soins des pieds", "Accessoires", "Packs", "Autres"];
 export const MAX_PRICE = 10_000_000;
@@ -10,7 +10,7 @@ export const offset = (day, days) => new Date(Date.parse(day) + days * DAY).toIS
 
 export function blank() {
   return {schema: 1, settings: {shop: "Bya Service", phone: "", address: ""},
-    products: [], contacts: [], operations: [], movements: [], expenses: [], sessions: [], withdrawals: []};
+    products: [], contacts: [], operations: [], movements: [], expenses: [], sessions: [], withdrawals: [], offers: []};
 }
 
 export function writableDay(state, day) {
@@ -64,10 +64,19 @@ export function find(items, id, message) {
   return item;
 }
 
+export function validPhoto(value) {
+  return typeof value === "string" && value.length <= 400000 &&
+    /^data:image\/jpeg;base64,\/9j\/[A-Za-z0-9+/]+={0,2}$/.test(value);
+}
+
 export function saveProduct(state, data, id) {
   const values = {sku: text(data, "sku", "Référence", 40, true), name: text(data, "name", "Nom", 120, true),
     category: text(data, "category", "Catégorie", 60, true), price: integer(data.price, "Prix"),
     threshold: integer(data.threshold ?? 5, "Seuil d’alerte", 0, MAX_QUANTITY)};
+  if (data.photo !== undefined) {
+    if (data.photo !== null && !validPhoto(data.photo)) throw new Error("Choisissez une photo valide et réessayez.");
+    values.photo = data.photo;
+  }
   if (state.products.some(p => p.id !== id && p.sku.toLowerCase() === values.sku.toLowerCase())) {
     throw new Error("Cette référence existe déjà.");
   }

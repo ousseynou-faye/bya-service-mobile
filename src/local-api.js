@@ -4,7 +4,7 @@ import {bootstrap, clientSummary, movements, productHistory, replenishment, repo
 import {backupData, backupFile} from "./backup.js";
 import {changeDrawer, drawer} from "./drawer.js";
 import {restoreState, transact} from "./storage.js";
-import {prepareOffer} from "./outreach.js";
+import {confirmOffer, prepareOffer, recordOffer} from "./outreach.js";
 
 function read(state, url) {
   const {pathname, searchParams} = url;
@@ -31,6 +31,10 @@ function write(state, pathname, data) {
   const [segment, key, action] = pathname.slice(5).split("/");
   const id = Number(key);
   switch (segment) {
+    case "offers":
+      if (!key) return recordOffer(state, data, today());
+      if (action === "sent") return confirmOffer(state, id, today());
+      break;
     case "drawer": return changeDrawer(state, key, data);
     case "products": return action === "active" ? activateProduct(state, data, id) : saveProduct(state, data, id);
     case "contacts": return saveContact(state, data, id);

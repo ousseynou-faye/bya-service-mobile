@@ -1,4 +1,4 @@
-import {MAX_PRICE, MAX_QUANTITY, MAX_STOCK, PAYMENTS, isDay} from "./model.js";
+import {MAX_PRICE, MAX_QUANTITY, MAX_STOCK, PAYMENTS, isDay, validPhoto} from "./model.js";
 import {drawer} from "./drawer.js";
 
 const bounded = (value, lower, upper) => Number.isSafeInteger(value) && value >= lower && value <= upper;
@@ -20,6 +20,7 @@ export function backupData(raw) {
   require(products.every(p => string(p.sku, 40) && p.sku && string(p.name, 120) && p.name && string(p.category, 60) &&
     bounded(p.price, 0, MAX_PRICE) && bounded(p.threshold, 0, MAX_QUANTITY) && bounded(p.average, 0, MAX_PRICE * 100) &&
     bounded(p.stock, 0, MAX_STOCK) && (p.active === 1 || (p.active === 0 && p.stock === 0))));
+  require(products.every(p => p.photo == null || validPhoto(p.photo)));
   require(new Set(products.map(p => p.sku.toLowerCase())).size === products.length);
   require(contacts.every(c => ["client", "supplier"].includes(c.kind) && string(c.name, 120) && c.name &&
     string(c.phone, 40) && string(c.note, 300) && (c.offers === undefined || typeof c.offers === "boolean")));
@@ -77,8 +78,14 @@ export function backupData(raw) {
     balances.set(m.product_id, balance);
   }
   require(!expected.size && products.every(p => (balances.get(p.id) ?? 0) === p.stock));
-  const {sessions = [], withdrawals = []} = raw.data;
-  const state = {schema, settings, products, contacts, operations, movements, expenses, sessions, withdrawals};
+  const {sessions = [], withdrawals = [], offers = []} = raw.data;
+  require(Array.isArray(offers) && offers.every(o => o && bounded(o.id, 1, Number.MAX_SAFE_INTEGER) &&
+    knownContacts.get(o.clientId)?.kind === "client" && knownProducts.has(o.productId) &&
+    string(o.productName, 120) && o.productName.trim() && ["promo", "new"].includes(o.kind) &&
+    bounded(o.price, 0, MAX_PRICE) && isDay(o.day) && (o.sentDay === null || (isDay(o.sentDay) && o.sentDay >= o.day)) &&
+    /^[A-Za-z0-9-]{16,64}$/.test(o.request_key) && string(o.signature, 2000)));
+  require(new Set(offers.map(o => o.id)).size === offers.length && new Set(offers.map(o => o.request_key)).size === offers.length);
+  const state = {schema, settings, products, contacts, operations, movements, expenses, sessions, withdrawals, offers};
   const safeMoney = n => bounded(n, 0, Number.MAX_SAFE_INTEGER);
   require(Array.isArray(sessions) && sessions.every(s => s && isDay(s.day) && safeMoney(s.opening)) &&
     new Set(sessions.map(s => s.day)).size === sessions.length);
