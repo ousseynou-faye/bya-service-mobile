@@ -36,7 +36,7 @@ const state = {
   page: "dashboard", view: 0, data: null, periods: {},
   productQuery: "", category: "", productStatus: "active",
   ticketQuery: "", cashSales: [],
-  stockFilter: "", contactKind: "client", replenishment: [],
+  stockFilter: "", contactKind: "client", contactQuery: "", withBalance: false, replenishment: [],
   inventoryQuery: "", inventoryLevel: "",
   finance: {kind: "", status: "", report: null, preset: "month"}
 };
@@ -193,7 +193,7 @@ function navigation() {
     '<div class="nav-group"><p>Gestion</p>' + navLink("reports") + navLink("contacts") + '</div>';
   document.getElementById("settings-link").innerHTML = navLink("settings");
   document.getElementById("mobile-pages").innerHTML = [["dashboard", "Accueil"], ["cash", "Caisse"],
-    ["products", "Produits"], ["reports", "Finances"]].map(([page, label]) => {
+    ["products", "Produits"], ["contacts", "Clientes"]].map(([page, label]) => {
     const current = page === state.page || (page === "reports" && state.page === "expenses");
     return '<a href="#' + page + '"' + (current ? ' aria-current="page"' : '') + '>' +
       icon(sections[page][1]) + '<span>' + label + '</span></a>';
@@ -299,10 +299,10 @@ function dashboardActivity(report) {
   const alerts = stockAlerts();
   const outOfStock = alerts.filter(p => p.stock === 0).length;
   return '<section class="home-stats">' + titlebar("Ventes du jour") + '<div class="stats">' +
-    stat("Chiffre d’affaires", fcfa(dayRevenue), number.format(daySales.length) + (daySales.length > 1 ? " tickets validés" : " ticket validé"), "cart") +
-    stat("Encaissements nets", fcfa(receipts), "Règlements reçus, remboursements déduits", "wallet", "violet") +
-    stat("Marge brute", fcfa((dayRevenue * 100 - dayCost) / 100), "Après coût des produits vendus", "trend", "green") +
-    '</div></section>' +
+    stat("Vendu aujourd’hui", fcfa(dayRevenue), number.format(daySales.length) + (daySales.length === 1 ? " ticket validé" : " tickets validés"), "cart") +
+    stat("Encaissé aujourd’hui", fcfa(receipts), "Acomptes et règlements, remboursements déduits", "wallet", "violet") +
+    '</div>' + expectedRow() +
+    '<p class="day-margin">Marge brute du jour <strong>' + esc(fcfa((dayRevenue * 100 - dayCost) / 100)) + '</strong></p></section>' +
     stockOverview(true) + dashboardFlag() + '<div class="home-grid"><section class="panel sales-panel">' +
     titlebar("Évolution des ventes", "Chiffre d’affaires en FCFA · 7 derniers jours", link("Finances", "#reports")) +
     '<p class="chart-total"><strong>' + esc(fcfa(report.revenue)) + '</strong><span> sur la période</span></p>' +
@@ -311,6 +311,23 @@ function dashboardActivity(report) {
       number.format(alerts.length) + (alerts.length > 1 ? " références" : " référence") + " · " + number.format(outOfStock) + " en rupture" : "", link("Voir la liste", "#replenish")) +
     dashboardInventory(alerts) + '</section></div><section class="panel home-recent">' +
     titlebar("Dernières ventes", "", button("Historique", "home-tickets", {style:"subtle", icon:"arrow"})) + dashboardSales(report.sales) + '</section>';
+}
+
+function expectedRow() {
+  const items = state.data.expected;
+  const total = items.reduce((sum, s) => sum + s.balance, 0);
+  return '<button type="button" class="expected-row" data-action="expected-payments">' + icon("calendar") +
+    '<span><strong>Paiements attendus</strong><small>' + (items.length ? number.format(items.length) +
+    (items.length === 1 ? " échéance" : " échéances") + " · aujourd’hui ou en retard" : "Aucune échéance à traiter") +
+    '</small></span><b>' + esc(fcfa(total)) + '</b>' + icon("arrow") + '</button>';
+}
+
+function expectedPayments() {
+  showDialog("Paiements attendus", table(["Cliente", "Ticket", "Échéance", "Reste à payer", "Action"], state.data.expected, s =>
+    td(esc(s.name), "wrap-cell") + td(esc(s.number)) + td(esc(pretty(s.due)) + " " +
+      badge(s.due < state.data.today ? "En retard" : "Aujourd’hui", "warn")) +
+    td(esc(fcfa(s.balance)), "numeric") + td(button("Enregistrer un règlement", "settle-sale", {id:s.id, small:true})),
+    "Aucune échéance à traiter.", "Les tickets avec un solde et une échéance atteinte apparaissent ici."), true);
 }
 
 function dateToolbar(key) {
@@ -646,19 +663,31 @@ function renderStock(movements, report) {
 
 function renderContacts() {
   const kind = state.contactKind;
-  const items = state.data.contacts.filter(contact => contact.kind === kind);
-  const label = kind === "client" ? "client" : "fournisseur";
-  return heading("Contacts", "Centralisez les coordonnées de vos clients et fournisseurs.",
-    button("Ajouter un " + label, "new-contact", {style: "primary", icon: "plus"}) +
+  return heading(kind === "client" ? "Clientes" : "Fournisseurs", "Retrouvez une fiche par nom ou par téléphone.",
+    button(kind === "client" ? "Ajouter une cliente" : "Ajouter un fournisseur", "new-contact", {style: "primary", icon: "plus"}) +
     (kind === "client" ? button("Offres WhatsApp", "whatsapp-offer") : "")) +
     '<section class="panel">' + '<div class="toolbar">' + field("Type de contact",
-      pick("contact-kind", [["client", "Clients"], ["supplier", "Fournisseurs"]], kind, 'id="contact-kind"')) + '</div>' +
-    table(["Nom", "Téléphone", "Note", ...(kind === "client" ? ["Reste à payer"] : []), "Actions"], items, item => td("<strong>" + esc(item.name) + "</strong>", "wrap-cell") +
+      pick("contact-kind", [["client", "Clientes"], ["supplier", "Fournisseurs"]], kind, 'id="contact-kind"')) +
+    field("Nom ou téléphone", input("contact-search", state.contactQuery, 'id="contact-search" type="search"')) +
+    (kind === "client" ? field("Afficher", pick("contact-balance", [["all", "Toutes les clientes"], ["open", "Avec un solde"]],
+      state.withBalance ? "open" : "all", 'id="contact-balance"')) : "") +
+    '</div><div id="contact-results">' + contactRows() + '</div></section>';
+}
+
+function contactRows() {
+  const kind = state.contactKind;
+  const normalize = s => s.normalize("NFD").replace(/\p{M}/gu, "").toLocaleLowerCase("fr").trim();
+  const query = normalize(state.contactQuery);
+  const digits = /^[+\d\s().-]+$/.test(query) ? query.replace(/\D/g, "") : "";
+  const items = state.data.contacts.filter(c => c.kind === kind &&
+    (kind !== "client" || !state.withBalance || state.data.balances[c.id] > 0) &&
+    (!query || normalize(c.name).includes(query) || (digits && (c.phone || "").replace(/\D/g, "").includes(digits))));
+  return table(["Nom", "Téléphone", "Note", ...(kind === "client" ? ["Reste à payer"] : []), "Actions"], items, item => td("<strong>" + esc(item.name) + "</strong>", "wrap-cell") +
       td(esc(item.phone || "—")) + td(esc(item.note || "—"), "wrap-cell") +
       (kind === "client" ? td(esc(fcfa(state.data.balances[item.id] || 0)), "numeric") : "") +
-      td((kind === "client" ? button("Compte client", "client-account", {id: item.id, small: true}) : "") +
+      td((kind === "client" ? button("Voir la fiche", "client-account", {id: item.id, small: true}) : "") +
         button("Modifier", "edit-contact", {id: item.id, small: true, style: "subtle"})),
-      "Aucun " + label + " enregistré.") + '</section>';
+      kind === "client" ? "Aucune cliente trouvée." : "Aucun fournisseur trouvé.");
 }
 
 function renderExpenses(report) {
@@ -1309,17 +1338,26 @@ function creditDetails(sale) {
 }
 
 async function clientAccount(id) {
-  const sales = await api("/api/client-credit?id=" + id);
   const client = state.data.contacts.find(c => c.id === id);
-  const total = sales.reduce((sum, s) => sum + s.balance, 0);
-  showDialog("Compte de " + client.name, titlebar("Reste à payer · " + fcfa(total)) +
-    table(["Ticket", "Échéance", "Montant", "Solde", "Actions"], sales, s =>
-      td(esc(s.number)) + td(s.credit.due ? esc(pretty(s.credit.due)) : "—") + td(esc(fcfa(s.total))) +
-      td(s.canceled_at ? "Annulé" : s.balance ? esc(fcfa(s.balance)) : "Soldé") +
+  const {credits, purchases, due, total} = await api("/api/client-summary?id=" + id);
+  const status = due < state.data.today ? "En retard" : due === state.data.today ? "Aujourd’hui" : "";
+  const open = credits.filter(s => s.balance > 0);
+  showDialog(client.name, '<div class="client-summary"><div><small>Reste à payer</small><strong>' +
+    esc(fcfa(total)) + '</strong></div><div><small>Prochaine échéance</small><strong>' +
+    (due ? esc(pretty(due)) : "Aucune date prévue") + '</strong>' + (status ? badge(status, "warn") : "") + '</div></div>' +
+    '<div class="actions client-actions">' + (open.length ? button("Enregistrer un règlement",
+      open.length === 1 ? "settle-sale" : "choose-ticket", {id:open.length === 1 ? open[0].id : id, style:"primary"}) : "") +
+    button("Préparer une offre", "whatsapp-offer", {id, icon:"cart"}) + '</div>' +
+    titlebar("Derniers achats") + table(["Date", "Articles", "Total", "Ticket"], purchases, s =>
+      td(esc(pretty(s.day))) + td(esc(s.articles), "wrap-cell") + td(esc(fcfa(s.total)), "numeric") +
+      td(button("Voir le ticket", "detail", {id:s.id, small:true})), "Aucun achat enregistré.") +
+    titlebar("Tickets à crédit") +
+    table(["Ticket", "Échéance", "Montant", "Solde", "Actions"], credits, s =>
+      td(esc(s.number)) + td(s.due ? esc(pretty(s.due)) : "—") + td(esc(fcfa(s.total))) +
+      td(s.canceled ? "Annulé" : s.balance ? esc(fcfa(s.balance)) : "Soldé") +
       td(button("Historique", "detail", {id: s.id, small: true}) +
         (s.balance ? button("Enregistrer un règlement", "settle-sale", {id: s.id, small: true}) : "")),
-    "Aucune vente à crédit pour cette cliente.") + '<div class="actions">' +
-    button("Offre WhatsApp", "whatsapp-offer", {id}) + button("Fermer", "close-dialog") + '</div>', true);
+    "Aucune vente à crédit pour cette cliente."), true);
 }
 
 async function settleTicket(id) {
@@ -1335,6 +1373,13 @@ async function settleTicket(id) {
 }
 
 const commands = {
+  "expected-payments": expectedPayments,
+  "choose-ticket": async id => {
+    const {credits} = await api("/api/client-summary?id=" + id);
+    showDialog("Choisir le ticket à régler", table(["Ticket", "Échéance", "Solde", "Action"], credits.filter(s => s.balance > 0),
+      s => td(esc(s.number)) + td(s.due ? esc(pretty(s.due)) : "Sans date") + td(esc(fcfa(s.balance)), "numeric") +
+      td(button("Régler ce ticket", "settle-sale", {id:s.id, small:true})), "Tous les tickets sont soldés."), true);
+  },
   "home-tickets": () => {
     selectedView.cash = "tickets";
     state.ticketQuery = "";
@@ -1399,6 +1444,13 @@ for (const control of menuControls) {
 }
 
 document.getElementById("nav-shade").addEventListener("click", () => setMenu(false, true));
+document.getElementById("mobile-pages").addEventListener("click", event => {
+  if (event.target.closest('a[href="#contacts"]') && state.contactKind !== "client") {
+    state.contactKind = "client";
+    state.contactQuery = "";
+    if (state.page === "contacts") render(true);
+  }
+});
 document.getElementById("sidebar").addEventListener("click", event => {
   if (event.target.closest("a")?.hash === location.hash && !document.getElementById("nav-shade").hidden) {
     setMenu(false, true);
@@ -1412,6 +1464,10 @@ document.addEventListener("keydown", event => {
 });
 
 main.addEventListener("input", event => {
+  if (event.target.id === "contact-search") {
+    state.contactQuery = event.target.value;
+    document.getElementById("contact-results").innerHTML = contactRows();
+  }
   if (event.target.id === "inventory-query") {
     state.inventoryQuery = event.target.value;
     document.getElementById("inventory-results").innerHTML = inventoryRows();
@@ -1449,7 +1505,12 @@ main.addEventListener("change", event => {
   }
   if (id === "contact-kind") {
     state.contactKind = value;
+    state.contactQuery = "";
     render(true).then(() => document.getElementById("contact-kind")?.focus());
+  }
+  if (id === "contact-balance") {
+    state.withBalance = value === "open";
+    document.getElementById("contact-results").innerHTML = contactRows();
   }
   if (id === "stock-filter") {
     state.stockFilter = value;

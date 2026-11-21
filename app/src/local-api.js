@@ -1,6 +1,6 @@
 import {activateProduct, addExpense, addOperation, cancelExpense, cancelSale, detail,
   remaining, settleSale, saveContact, saveProduct, saveSettings, today} from "./model.js";
-import {bootstrap, movements, productHistory, replenishment, report} from "./reports.js";
+import {bootstrap, clientSummary, movements, productHistory, replenishment, report} from "./reports.js";
 import {backupData, backupFile} from "./backup.js";
 import {changeDrawer, drawer} from "./drawer.js";
 import {restoreState, transact} from "./storage.js";
@@ -10,6 +10,7 @@ function read(state, url) {
   const {pathname, searchParams} = url;
   if (pathname === "/api/drawer") return drawer(state, searchParams.get("day") || today());
   if (pathname === "/api/bootstrap") return bootstrap(state);
+  if (pathname === "/api/client-summary") return clientSummary(state, Number(searchParams.get("id")));
   if (pathname === "/api/client-credit") {
     const id = Number(searchParams.get("id"));
     return state.operations.filter(o => o.credit && o.contact_id === id)

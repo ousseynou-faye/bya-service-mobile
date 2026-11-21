@@ -3,7 +3,7 @@ import {readFile} from "node:fs/promises";
 import test from "node:test";
 import vm from "node:vm";
 import {activateProduct, addExpense, addOperation, blank, cancelExpense, cancelSale, saveProduct, today} from "../app/src/model.js";
-import {bootstrap, productHistory, replenishment, report, stockLevel, stockTotals} from "../app/src/reports.js";
+import {bootstrap, clientSummary, productHistory, replenishment, report, stockLevel, stockTotals} from "../app/src/reports.js";
 import {backupData, backupFile} from "../app/src/backup.js";
 import {changeDrawer, drawer} from "../app/src/drawer.js";
 import {remaining, saveContact, settleSale} from "../app/src/model.js";
@@ -36,6 +36,27 @@ test("Pack à 7 000 FCFA, acompte Wave puis solde en espèces deux jours après"
   assert.equal(drawer(state).channels[0].reversals,-4000);
   assert.equal(item.stock,5);
   assert.deepEqual(backupData(JSON.parse(backupFile(state))), state);
+});
+
+test("La fiche regroupe les achats et la liste des échéances retient uniquement les soldes exigibles", () => {
+  const {state, item} = fixture();
+  const client = saveContact(state, {kind:"client", name:"Cliente exemple"});
+  const base = {day:"2025-04-10", method:"Wave", contact_id:client.id, lines:[{product_id:item.id, quantity:1}]};
+  const credit = {...base, payment_mode:"partial", deposit:500};
+  addOperation(state, "sale", {...base, request_key:"achat-comptant-0001"});
+  const late = addOperation(state, "sale", {...credit, due:"2025-04-12", request_key:"credit-retard-0001"});
+  const current = addOperation(state, "sale", {...credit, due:today(), request_key:"credit-du-jour-001"});
+  addOperation(state, "sale", {...credit, due:"2099-04-12", request_key:"credit-futur-00001"});
+  addOperation(state, "sale", {...credit, request_key:"credit-sans-date-01"});
+  const expected = () => bootstrap(state).expected.map(s => s.id);
+  assert.deepEqual(expected(), [late.id, current.id]);
+  const account = () => clientSummary(state, client.id);
+  assert.deepEqual([account().total, account().due, account().purchases.length], [6000,"2025-04-12",5]);
+  assert.equal(account().purchases[0].articles, "1 × Savon");
+  settleSale(state, {day:today(), amount:1500, method:"Wave", request_key:"solde-credit-00001"}, late.id);
+  cancelSale(state, {reason:"Retour"}, current.id);
+  assert.deepEqual(expected(), []);
+  assert.deepEqual([account().total, account().due, account().purchases.length], [3000,"2099-04-12",4]);
 });
 
 test("Vente à crédit sans acompte, échéance et anciens tickets payés", () => {
