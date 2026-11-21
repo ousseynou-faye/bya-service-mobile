@@ -1,4 +1,7 @@
 :root {
+  --cover-paper: #f3e7dd;
+  --cover-ink: #402438;
+  --cover-muted: #674e59;
   --chart-fill: #ad82b3;
   --chart-today: #704372;
   --chart-empty: #e4d9e7;
@@ -17,25 +20,27 @@
   isolation: isolate;
   display: flex;
   align-items: center;
-  min-height: clamp(184px, 17vw, 242px);
-  background: #352035;
-  color: #fff9f5;
+  min-height: clamp(168px, 14vw, 206px);
+  background: var(--cover-paper);
+  color: var(--cover-ink);
 }
 .home-hero-copy { z-index: 1; padding: clamp(20px, 3.1vw, 40px); }
-.home-hero h1 { font: 600 clamp(33px, 4.2vw, 60px)/1.02 Georgia, serif; letter-spacing: -.048em; }
-.home-domain { margin-bottom: 8px; color: #f3d9da; font-size: 13px; font-weight: 600; }
-.home-hero .btn.primary { margin-top: 18px; border: 0; background: #ffe6d4; color: #422137; }
-.home-hero .btn.primary:hover { background: #fff5e9; }
+.home-hero h1 { font: 500 clamp(33px, 4.3vw, 60px)/1.04 Georgia, serif; letter-spacing: -.05em; }
+.home-domain { margin-bottom: 8px; color: var(--cover-muted); font-size: 13px; font-weight: 650; }
+.home-hero .btn.primary { border-color: transparent; background: #653555; color: #fff; }
+.home-hero .btn.primary:hover { background: #48283e; }
 .home-visual {
   position: absolute;
-  inset: 0 0 0 24%;
+  inset: 0 0 0 46%;
   z-index: -1;
-  background: linear-gradient(90deg, #352035, #352035a8 26%, transparent 66%),
-    url("../assets/accueil.webp") 60% 56% / cover no-repeat;
+  background: linear-gradient(90deg, var(--cover-paper), transparent 48%),
+    url("../assets/accueil.webp") 63% 55% / cover no-repeat;
 }
-.home-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; padding: 5px clamp(10px, 2vw, 26px); }
-.home-tools .btn { border: 0; background: transparent; color: var(--accent-ink); }
-.home-tools .btn:hover { background: var(--accent-soft); }
+.home-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 16px; }
+.home-tools .btn.secondary { background: var(--surface); color: var(--ink); border-color: var(--field-border); }
+.home-tools .btn.secondary:hover { background: var(--accent-soft); }
+:root[data-theme="dark"] { --cover-paper: #372936; --cover-ink: #fff4ea; --cover-muted: #e4c9d4; }
+:root[data-theme="dark"] .home-hero .btn.primary { background: #f2c6d5; color: #3b2032; }
 .home-stats .section-heading h2 { font-size: clamp(20px, 2.6vw, 28px); }
 .home-setup {
   display: grid;
@@ -49,10 +54,20 @@
   background: var(--surface);
 }
 .home-setup p { margin-top: 3px; color: var(--muted); font-size: 12px; }
-.home-stock-alert { border-inline-start: 3px solid var(--warn-ink); }
 .home-loading { border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
 .load-error .actions { justify-content: center; margin-top: -10px; padding-bottom: 6px; }
 .home-stats .section-heading { margin-bottom: 12px; }
+.home-stats .stats { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.home-stats .stat { border-block-start-width: 1px; padding: clamp(13px, 1.5vw, 20px); }
+.home-stats .stats > .stat:first-child { background: #452a40; border-color: #452a40; color: #fff7f2; }
+.home-stats .stat:first-child .stat-top, .home-stats .stat:first-child small { color: #f3dce6; }
+.home-stats .stat:first-child .stat-icon { background: #623d58; color: #ffe4ed; }
+.home-stats .stat-top { justify-content: space-between; flex-direction: row; }
+.home-stats .stat strong { font-size: clamp(22px, 2.4vw, 36px); }
+#home-live .stock-figures > div { border-radius: 0; background: transparent; padding: 0 15px; border-inline-start: 1px solid var(--border); }
+#home-live .stock-figures > div:first-child { border: 0; padding-inline-start: 0; }
+#home-live .stock-figures dt { color: var(--muted); }
+#home-live .stock-figures dd:not(.stock-caption) { color: var(--accent-ink); }
 
 .home-grid {
   display: grid;
@@ -116,12 +131,18 @@
   color: var(--muted);
   font-size: 11px;
   white-space: nowrap;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
 }
 .chart-column svg { width: 72%; max-width: 38px; height: var(--plot-height); }
 .chart-column .has-sales { fill: var(--chart-fill); }
 .chart-column .no-sales { fill: var(--chart-empty); }
-.chart-column.is-today { color: var(--accent-ink); font-weight: 750; }
-.chart-column.is-today .has-sales, .chart-column:hover .has-sales { fill: var(--chart-today); }
+.chart-column[aria-pressed="true"] { color: var(--accent-ink); font-weight: 750; }
+.chart-column[aria-pressed="true"] .has-sales, .chart-column:hover .has-sales { fill: var(--chart-today); }
+.chart-reading { margin: 12px 0 0; text-align: end; font-size: 13px; color: var(--accent-ink); font-weight: 650; }
 
 .home-empty {
   display: grid;
@@ -156,10 +177,18 @@
 
 @media (max-width: 680px) {
   .home-hero { min-height: 155px; }
-  .home-hero-copy { padding: 20px; }
-  .home-visual { inset-inline-start: 12%; background-position: center, 64% center; }
-  .home-tools { justify-content: space-around; gap: 1px; }
-  .home-tools .btn { padding-inline: 8px; }
+  .home-hero-copy { width: 100%; padding: 18px 14px; }
+  .home-visual { inset-inline-start: 47%; background-position: center, 62% center; }
+  .home-tools { gap: 5px; }
+  .home-tools .btn { padding-inline: 9px; min-height: 42px; }
+  .home-stats .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .home-stats .stat:first-child { grid-column: 1 / -1; display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 2px 8px; align-items: center; }
+  .home-stats .stat:first-child .stat-top { flex-direction: row-reverse; justify-content: end; margin: 0; }
+  .home-stats .stat:first-child small { grid-column: 1 / -1; }
+  .home-stats .stat-top { min-height: 25px; margin-bottom: 6px; }
+  .home-stats .stat-icon { width: 26px; height: 26px; border-radius: 8px; }
+  #home-live .stock-figures > div:first-child { padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+  #home-live .stock-figures > div:nth-child(2) { padding-inline-start: 0; border-inline-start: 0; }
   .home-grid { grid-template-columns: minmax(0, 1fr); }
   .sales-chart { --plot-height: 118px; }
 }
