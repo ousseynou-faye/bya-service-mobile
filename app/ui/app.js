@@ -1,6 +1,7 @@
 "use strict";
 import {remaining, salePayments} from "../src/model.js";
 import {whatsappNumber} from "../src/outreach.js";
+import {stockLevel, stockTotals} from "../src/reports.js";
 
 const icons = {
   grid: '<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>',
@@ -36,6 +37,7 @@ const state = {
   productQuery: "", category: "", productStatus: "active",
   ticketQuery: "", cashSales: [],
   stockFilter: "", contactKind: "client", replenishment: [],
+  inventoryQuery: "", inventoryLevel: "",
   finance: {kind: "", status: "", report: null, preset: "month"}
 };
 
@@ -65,6 +67,10 @@ function esc(value) {
 }
 
 function fcfa(value) { return money.format(value) + " FCFA"; }
+function stockCost(cents) {
+  const fraction = String(cents % 100n).padStart(2, "0").replace(/0+$/, "");
+  return number.format(cents / 100n) + (fraction ? "," + fraction : "") + " FCFA";
+}
 function pretty(day) { return longDate.format(new Date(day + "T00:00:00Z")); }
 function dayOffset(day, offset) {
   const date = new Date(day + "T00:00:00Z");
@@ -298,7 +304,7 @@ function dashboardActivity(report) {
     stat("Marge brute", fcfa((dayRevenue * 100 - dayCost) / 100), "Après coût des produits vendus", "trend", "green") +
     stat("Stock à surveiller", number.format(alerts.length), outOfStock ? number.format(outOfStock) + " en rupture" :
       "Au seuil ou en rupture", "alert", "gold") + '</div></section>' +
-    dashboardFlag() + '<div class="home-grid"><section class="panel sales-panel">' +
+    stockOverview(true) + dashboardFlag() + '<div class="home-grid"><section class="panel sales-panel">' +
     titlebar("Évolution des ventes", "Chiffre d’affaires en FCFA · 7 derniers jours", link("Finances", "#reports")) +
     '<p class="chart-total"><strong>' + esc(fcfa(report.revenue)) + '</strong><span> sur la période</span></p>' +
     dashboardChart(report) + '</section>' +
@@ -452,12 +458,11 @@ function productStatus(p) {
 }
 
 function productRows() {
-  const normalize = value => value.normalize("NFD").replace(/\p{Diacritic}/gu, "").toLocaleLowerCase("fr");
-  const query = normalize(state.productQuery.trim());
+  const query = searchText(state.productQuery.trim());
   const items = state.data.products.filter(p =>
     (state.productStatus === "all" || Boolean(p.active) === (state.productStatus === "active")) &&
     (!state.category || p.category === state.category) &&
-    normalize(p.name + " " + p.sku).includes(query));
+    searchText(p.name + " " + p.sku).includes(query));
   return table(["Produit", "Catégorie", "Prix de vente", "Coût moyen", "Stock", "Statut", "Actions"], items, p =>
     td(productName(p)) + td(esc(p.category)) + td(esc(fcfa(p.price)), "numeric") +
     td(esc(p.average === 0 && p.stock === 0 ? "—" : fcfa(p.average / 100)), "numeric") +
@@ -570,25 +575,52 @@ function openProductMovements(id) {
 }
 
 
+function searchText(value) {
+  return value.normalize("NFD").replace(/\p{Diacritic}/gu, "").toLocaleLowerCase("fr");
+}
+
+function stockOverview(home = false) {
+  const {units, cost, retail, zeroCost} = stockTotals(state.data.products);
+  return '<section class="panel stock-overview">' + titlebar("Stock restant", "", home ?
+    button("Voir l’inventaire", "open-inventory", {style: "subtle", icon: "arrow"}) : "") +
+    '<dl class="stock-figures"><div><dt>Quantité totale</dt><dd>' + number.format(units) +
+    ' <small>unité' + (units > 1n ? "s" : "") + '</small></dd></div><div><dt>Valeur au coût d’achat</dt><dd>' +
+    stockCost(cost) + '</dd><dd class="stock-caption">Au coût moyen des articles restants</dd></div>' +
+    '<div><dt>Valeur au prix de vente</dt><dd>' + fcfa(retail) +
+    '</dd><dd class="stock-caption">Si tout le stock est vendu au tarif actuel</dd></div></dl>' +
+    (zeroCost ? '<p class="stock-cost-note">' + number.format(zeroCost) + (zeroCost === 1 ?
+      ' référence en stock a un coût moyen de 0 FCFA.' : ' références en stock ont un coût moyen de 0 FCFA.') + '</p>' : '') + '</section>';
+}
+
+function inventoryRows() {
+  const query = searchText(state.inventoryQuery.trim());
+  const order = {empty: 0, low: 1, available: 2};
+  const items = activeProducts().filter(p => (!state.inventoryLevel || stockLevel(p) === state.inventoryLevel) &&
+    searchText(p.name + " " + p.sku).includes(query)).sort((a, b) => order[stockLevel(a)] - order[stockLevel(b)]);
+  const filtered = Boolean(query || state.inventoryLevel);
+  const totals = filtered && items.length ? stockTotals(items) : null;
+  return (totals ? '<p class="inventory-subtotal">Sélection · ' + number.format(items.length) + ' réf. · ' +
+    number.format(totals.units) + ' unité(s) · ' + stockCost(totals.cost) + ' au coût d’achat</p>' : '') +
+    table(["Produit", "Stock restant", "Seuil", "Valeur au coût", "État", "Actions"], items, p =>
+      td(productName(p)) + td('<strong class="inventory-qty">' + number.format(p.stock) + '</strong>', "numeric") +
+      td(number.format(p.threshold), "numeric") + td(stockCost(BigInt(p.average) * BigInt(p.stock)), "numeric") +
+      td(productStatus(p)) + td('<div class="actions">' + button("Compter", "count-stock", {id: p.id, small: true}) +
+        button("Fiche", "product-history", {id: p.id, small: true, style: "subtle"}) + '</div>'),
+      filtered ? "Aucun produit ne correspond à cette sélection." : "Aucun produit actif.",
+      filtered ? "Modifiez la recherche ou choisissez « Tous les états »." : "Ajoutez une référence dans Produits pour commencer.");
+}
+
 function renderStock(movements, report) {
-  const products = activeProducts();
-  const stockValue = products.reduce((total, p) => total + p.stock * p.average, 0);
-  const units = products.reduce((total, p) => total + p.stock, 0);
   return heading("Achats et stock", "Réceptionnez les produits et suivez les entrées, les ventes et les ajustements.",
     button("Enregistrer un achat", "new-purchase", {style: "primary", icon: "plus"}) +
     link("Réapprovisionner", "#replenish", "secondary") + button("Ajuster le stock", "new-adjust", {icon: "stack"})) +
-    '<div class="stats">' + stat("Unités en stock", number.format(units), products.length + " référence(s) active(s)", "box") +
-    stat("Valeur du stock", fcfa(stockValue / 100), "Sur la base du coût moyen", "wallet", "green") +
-    stat("Alertes de stock", stockAlerts().length, "Au seuil ou en rupture", "alert", "gold") + '</div>' +
-    viewPicker("stock") + '<section class="panel table-panel" data-panel="inventory">' + titlebar("État des stocks") +
-    table(["Produit", "Quantité", "Seuil", "Valeur au coût", "État", "Actions"],
-      [...products].sort((a, b) => (a.stock === 0 ? 0 : a.stock <= a.threshold ? 1 : 2) -
-        (b.stock === 0 ? 0 : b.stock <= b.threshold ? 1 : 2)), p =>
-      td(productName(p)) + td(number.format(p.stock)) + td(number.format(p.threshold)) +
-      td(esc(fcfa(p.average * p.stock / 100)), "numeric") +
-      td(productStatus(p)) + td('<div class="actions">' + button("Compter", "count-stock", {id: p.id, small: true}) +
-        button("Fiche", "product-history", {id: p.id, small: true, style: "subtle"}) + '</div>'),
-    "Aucun produit actif.") + '</section>' +
+    stockOverview() + viewPicker("stock") + '<section class="panel table-panel" data-panel="inventory">' +
+    titlebar("Inventaire par produit", "Les ruptures et les stocks bas apparaissent en premier.") +
+    '<div class="toolbar">' + field("Rechercher un produit", input("inventory-query", state.inventoryQuery,
+      'id="inventory-query" type="search" placeholder="Nom ou référence"')) +
+    field("État du stock", pick("inventory-level", [["", "Tous les états"], ["empty", "Rupture"], ["low", "Stock bas"],
+      ["available", "Disponible"]], state.inventoryLevel, 'id="inventory-level"')) +
+    '</div><div id="inventory-results">' + inventoryRows() + '</div></section>' +
     '<section class="panel table-panel" data-panel="purchases">' + titlebar("Achats enregistrés") + dateToolbar("stock") +
     table(["Référence", "Date", "Fournisseur", "Montant", "Actions"], report.purchases, item =>
       td("<strong>" + esc(item.number) + "</strong>") + td(esc(pretty(item.day))) +
@@ -1297,6 +1329,7 @@ async function settleTicket(id) {
 }
 
 const commands = {
+  "open-inventory": () => { selectedView.stock = "inventory"; state.inventoryQuery = ""; state.inventoryLevel = ""; location.hash = "stock"; },
   "whatsapp-offer": openOffer,
   "offer-contacts": () => { dialog.close(); state.contactKind = "client"; if (state.page === "contacts") render(); else location.hash = "contacts"; },
   "offer-add-client": () => { state.contactKind = "client"; editContact(); },
@@ -1367,6 +1400,10 @@ document.addEventListener("keydown", event => {
 });
 
 main.addEventListener("input", event => {
+  if (event.target.id === "inventory-query") {
+    state.inventoryQuery = event.target.value;
+    document.getElementById("inventory-results").innerHTML = inventoryRows();
+  }
   if (event.target.id === "ticket-search") {
     state.ticketQuery = event.target.value;
     document.getElementById("ticket-results").innerHTML = matchingTickets();
@@ -1379,6 +1416,10 @@ main.addEventListener("input", event => {
 
 main.addEventListener("change", event => {
   const {id, value} = event.target;
+  if (id === "inventory-level") {
+    state.inventoryLevel = value;
+    document.getElementById("inventory-results").innerHTML = inventoryRows();
+  }
   if ((id === "drawer-day" || id === "drawer-history") && value && event.target.validity.valid) {
     drawerDay = value;
     void render(true);

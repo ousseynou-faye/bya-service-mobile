@@ -3,6 +3,24 @@ import {CATEGORIES, DAY, MAX_QUANTITY, PAYMENTS, VERSION, find, isDay, number, o
 const alphabetical = (a, b) => a.name.localeCompare(b.name, "fr", {sensitivity: "base"}) || a.id - b.id;
 const recent = (a, b) => b.day.localeCompare(a.day) || b.id - a.id;
 
+export function stockLevel(p) {
+  if (!p.stock) return "empty";
+  return p.stock <= p.threshold ? "low" : "available";
+}
+
+export function stockTotals(products) {
+  let units = 0n, cost = 0n, retail = 0n, zeroCost = 0;
+  for (const p of products) {
+    if (!p.active) continue;
+    const qty = BigInt(p.stock);
+    units += qty;
+    cost += qty * BigInt(p.average);
+    retail += qty * BigInt(p.price);
+    if (p.stock > 0 && !p.average) zeroCost++;
+  }
+  return {units, cost, retail, zeroCost};
+}
+
 export function bootstrap(state) {
   const balances = {};
   for (const o of state.operations) {

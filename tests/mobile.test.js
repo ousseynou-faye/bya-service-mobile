@@ -3,7 +3,7 @@ import {readFile} from "node:fs/promises";
 import test from "node:test";
 import vm from "node:vm";
 import {activateProduct, addExpense, addOperation, blank, cancelExpense, cancelSale, saveProduct, today} from "../app/src/model.js";
-import {bootstrap, productHistory, replenishment, report} from "../app/src/reports.js";
+import {bootstrap, productHistory, replenishment, report, stockLevel, stockTotals} from "../app/src/reports.js";
 import {backupData, backupFile} from "../app/src/backup.js";
 import {changeDrawer, drawer} from "../app/src/drawer.js";
 import {remaining, saveContact, settleSale} from "../app/src/model.js";
@@ -145,6 +145,28 @@ function fixture() {
   addOperation(state, "purchase", {request_key: "achat-0000000000000", method: "Wave", lines: [{product_id: item.id, quantity: 5, unit: 800}]});
   return {state, item};
 }
+
+test("Stock restant après vente, annulation et comptage physique", () => {
+  const {state, item} = fixture();
+  const totals = () => stockTotals(state.products);
+  assert.equal(totals().units, 5n);
+  const sale = addOperation(state, "sale", {request_key:"stock-vente-00000001", method:"Wave", lines:[{product_id:item.id, quantity:2}]});
+  assert.deepEqual(totals(), {units:3n, cost:240000n, retail:3n * BigInt(item.price), zeroCost:0});
+  cancelSale(state, {reason:"Retour"}, sale.id);
+  assert.equal(totals().cost, 400000n);
+  addOperation(state, "adjust", {request_key:"stock-comptage-00001", note:"Comptage", lines:[{product_id:item.id, quantity:-5}]});
+  assert.equal(stockLevel(item), "empty");
+  assert.deepEqual(totals(), {units:0n, cost:0n, retail:0n, zeroCost:0});
+});
+
+test("Sommes exactes même au-delà de la précision des nombres flottants", () => {
+  const p = {active:1, stock:100000000, average:999999999, price:10000000, threshold:5};
+  const free = {...p, stock:5, average:0, price:100};
+  assert.deepEqual(stockTotals([p, free, {...p, active:0}]),
+    {units:100000005n, cost:99999999900000000n, retail:1000000000000500n, zeroCost:1});
+  assert.equal(stockLevel(free), "low");
+  assert.equal(stockLevel(p), "available");
+});
 
 test("Les catalogues de deux installations évoluent indépendamment", () => {
   const {state, item} = fixture();

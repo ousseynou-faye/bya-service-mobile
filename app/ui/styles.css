@@ -426,6 +426,23 @@ tbody tr:is(:hover, :focus-within) { background: var(--raised); }
 .field textarea { min-height: 76px; resize: vertical; }
 .form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
 .offer-preview { display: grid; gap: 14px; }
+.stock-overview .section-heading { margin-bottom: 14px; }
+.stock-figures { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin: 0; }
+.stock-figures > div { padding: 14px 16px; border-radius: 10px; background: var(--raised); min-width: 0; }
+.stock-figures > div:first-child { background: var(--accent-soft); color: var(--accent-ink); }
+.stock-figures dt { font-weight: 650; font-size: .84rem; }
+.stock-figures dd { margin: 5px 0 0; font-size: clamp(1.2rem, 2vw, 1.75rem); line-height: 1.15; font-weight: 750; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+.stock-figures dd small { font-size: .85rem; }
+.stock-figures .stock-caption, .stock-cost-note, .inventory-subtotal { color: var(--muted); font-size: .8rem; font-weight: 450; line-height: 1.4; }
+.stock-cost-note, .inventory-subtotal { margin: 12px 0 0; }
+.inventory-subtotal { margin-bottom: 12px; }
+.inventory-qty { font-size: 1.1rem; font-variant-numeric: tabular-nums; }
+@media (max-width: 680px) {
+  .stock-figures { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; }
+  .stock-figures > div { padding: 11px; }
+  .stock-figures > div:first-child { grid-column: 1 / -1; display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+  .stock-figures > div:first-child dd { margin: 0; }
+}
 .offer-preview textarea { line-height: 1.5; resize: vertical; }
 .offer-recipient { margin: 0; font-weight: 650; overflow-wrap: anywhere; }
 .offer-preview [aria-disabled="true"] { opacity: .5; }
