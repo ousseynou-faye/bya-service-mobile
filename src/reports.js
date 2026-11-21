@@ -23,11 +23,32 @@ export function stockTotals(products) {
 
 export function bootstrap(state) {
   const balances = {};
+  const day = today(), expected = [];
+  const names = new Map(state.contacts.map(c => [c.id, c.name]));
   for (const o of state.operations) {
-    if (o.credit) balances[o.contact_id] = (balances[o.contact_id] || 0) + remaining(o);
+    if (!o.credit) continue;
+    const balance = remaining(o);
+    balances[o.contact_id] = (balances[o.contact_id] || 0) + balance;
+    if (balance > 0 && o.credit.due && o.credit.due <= day) {
+      expected.push({id: o.id, name: names.get(o.contact_id) || o.contact_name,
+        number: number("sale", o.id), due: o.credit.due, balance});
+    }
   }
-  return {today: today(), version: VERSION, demo: false, balances, settings: state.settings, payments: PAYMENTS,
+  expected.sort((a, b) => a.due.localeCompare(b.due) || a.id - b.id);
+  return {today: day, version: VERSION, demo: false, balances, expected, settings: state.settings, payments: PAYMENTS,
     categories: CATEGORIES, products: [...state.products].sort(alphabetical), contacts: [...state.contacts].sort(alphabetical)};
+}
+
+export function clientSummary(state, id) {
+  const sales = state.operations.filter(o => o.kind === "sale" && o.contact_id === id).sort(recent);
+  const credits = sales.filter(o => o.credit).map(o => ({id: o.id, number: number("sale", o.id),
+    due: o.credit.due, total: o.total, canceled: Boolean(o.canceled_at), balance: remaining(o)}));
+  const open = credits.filter(s => s.balance > 0);
+  const due = open.map(s => s.due).filter(Boolean).sort()[0];
+  const purchases = sales.filter(o => !o.canceled_at).slice(0, 5).map(o => ({
+    id: o.id, day: o.day, total: o.total, articles: o.lines.map(l => l.quantity + " × " + l.name).join(", ")
+  }));
+  return {credits, purchases, due, total: open.reduce((sum, s) => sum + s.balance, 0)};
 }
 
 export function replenishment(state) {
