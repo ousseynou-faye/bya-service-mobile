@@ -217,17 +217,19 @@ function dashboardChart(report) {
     const date = new Date(point.day);
     const today = point.day === state.data.today;
     const height = point.total ? Math.max(2, point.total / scale * 120) : 2;
-    return '<li class="chart-column' + (today ? ' is-today' : '') +
-      '" aria-label="' + esc(pretty(point.day) + " · " + fcfa(point.total)) + '">' +
+    const label = esc(pretty(point.day) + " · " + fcfa(point.total));
+    return '<li><button type="button" class="chart-column" data-chart-day aria-pressed="' + today +
+      '" aria-label="' + label + '">' +
       '<svg viewBox="0 0 40 120" preserveAspectRatio="none" aria-hidden="true">' +
       '<title>' + esc(shortDate.format(date) + " · " + fcfa(point.total)) + '</title>' +
       '<rect class="' + (point.total ? "has-sales" : "no-sales") + '" x="2" y="' +
       (120 - height) + '" width="36" height="' + height + '" rx="4"/></svg>' +
-      '<span aria-hidden="true">' + esc(weekday.format(date).replace(".", "")) + '</span></li>';
+      '<span aria-hidden="true">' + esc(weekday.format(date).replace(".", "")) + '</span></button></li>';
   }).join("");
   const axis = [scale, scale * 2 / 3, scale / 3, 0].map(n => '<span>' + esc(compactNumber.format(n)) + '</span>').join("");
   return '<div class="sales-chart"><div class="chart-scale" aria-hidden="true">' + axis +
-    '</div><ol class="chart-columns" aria-label="Chiffre d’affaires en FCFA par jour">' + columns + '</ol></div>';
+    '</div><ol class="chart-columns" aria-label="Chiffre d’affaires en FCFA par jour">' + columns + '</ol></div>' +
+    '<p class="chart-reading" aria-live="polite">' + esc(pretty(state.data.today) + " · " + fcfa(report.series.at(-1).total)) + '</p>';
 }
 
 function recentSales(items) {
@@ -252,11 +254,7 @@ function dashboardFlag() {
       '<p>Créez sa fiche, puis enregistrez la quantité reçue dans les achats.</p></div>' +
       button("Ajouter un produit", "new-product", {icon: "plus"}) + '</aside>';
   }
-  const count = stockAlerts().length;
-  return count ? '<aside class="home-setup home-stock-alert"><span class="product-icon gold">' + icon("alert") +
-    '</span><div><strong>' + number.format(count) + (count === 1 ? " produit à réapprovisionner" : " produits à réapprovisionner") +
-    '</strong><p>Consultez les quantités suggérées avant de préparer votre prochain achat.</p></div>' +
-    link("Voir la liste", "#replenish", "secondary") + '</aside>' : "";
+  return "";
 }
 
 function dashboardInventory(alerts) {
@@ -285,32 +283,34 @@ function dashboardSales(items) {
 function dashboardShell() {
   return '<section class="home-cover" aria-labelledby="home-title"><div class="home-hero"><div class="home-hero-copy">' +
     '<p class="home-domain">' + esc(pretty(state.data.today)) + '</p><h1 id="home-title">Tableau de bord</h1>' +
-    button("Nouvelle vente", "new-sale", {style: "primary", icon: "cart"}) + '</div>' +
-    '<div class="home-visual" aria-hidden="true"></div></div>' +
     '<div class="home-tools" role="group" aria-label="Opérations de boutique">' +
-    button("Nouvel achat", "new-purchase", {icon: "box"}) + button("Ajouter une dépense", "new-expense", {icon: "wallet"}) +
-    '</div></section><div id="home-live" aria-busy="true"><div class="initial home-loading" role="status">Chargement de l’activité…</div></div>';
+    button("Nouvelle vente", "new-sale", {style: "primary", icon: "cart"}) +
+    button("Nouvel achat", "new-purchase", {icon: "box"}) + button("Dépense", "new-expense", {icon: "wallet"}) +
+    '</div></div><div class="home-visual" aria-hidden="true"></div></div></section>' +
+    '<div id="home-live" aria-busy="true"><div class="initial home-loading" role="status">Chargement de l’activité…</div></div>';
 }
 
 function dashboardActivity(report) {
   const daySales = report.sales.filter(s => s.day === state.data.today && !s.canceled_at);
   const dayRevenue = daySales.reduce((total, s) => total + s.total, 0);
   const dayCost = daySales.reduce((total, s) => total + s.cost, 0);
+  const receipts = report.journal.filter(row => row.day === state.data.today &&
+    ["sale", "settlement", "refund"].includes(row.kind)).reduce((sum, row) => sum + row.flow, 0);
   const alerts = stockAlerts();
   const outOfStock = alerts.filter(p => p.stock === 0).length;
-  return '<section class="home-stats">' + titlebar("Aujourd’hui") + '<div class="stats">' +
-    stat("Chiffre d’affaires", fcfa(dayRevenue), "Net des remises", "wallet") +
-    stat("Tickets de vente", number.format(daySales.length), "Ventes validées", "receipt", "violet") +
+  return '<section class="home-stats">' + titlebar("Ventes du jour") + '<div class="stats">' +
+    stat("Chiffre d’affaires", fcfa(dayRevenue), number.format(daySales.length) + (daySales.length > 1 ? " tickets validés" : " ticket validé"), "cart") +
+    stat("Encaissements nets", fcfa(receipts), "Règlements reçus, remboursements déduits", "wallet", "violet") +
     stat("Marge brute", fcfa((dayRevenue * 100 - dayCost) / 100), "Après coût des produits vendus", "trend", "green") +
-    stat("Stock à surveiller", number.format(alerts.length), outOfStock ? number.format(outOfStock) + " en rupture" :
-      "Au seuil ou en rupture", "alert", "gold") + '</div></section>' +
+    '</div></section>' +
     stockOverview(true) + dashboardFlag() + '<div class="home-grid"><section class="panel sales-panel">' +
     titlebar("Évolution des ventes", "Chiffre d’affaires en FCFA · 7 derniers jours", link("Finances", "#reports")) +
     '<p class="chart-total"><strong>' + esc(fcfa(report.revenue)) + '</strong><span> sur la période</span></p>' +
     dashboardChart(report) + '</section>' +
-    '<section class="panel inventory-panel">' + titlebar("Alertes de stock", "", link("Réapprovisionner", "#replenish")) +
+    '<section class="panel inventory-panel">' + titlebar("À réapprovisionner", alerts.length ?
+      number.format(alerts.length) + (alerts.length > 1 ? " références" : " référence") + " · " + number.format(outOfStock) + " en rupture" : "", link("Voir la liste", "#replenish")) +
     dashboardInventory(alerts) + '</section></div><section class="panel home-recent">' +
-    titlebar("Dernières ventes", "", link("Historique", "#cash")) + dashboardSales(report.sales) + '</section>';
+    titlebar("Dernières ventes", "", button("Historique", "home-tickets", {style:"subtle", icon:"arrow"})) + dashboardSales(report.sales) + '</section>';
 }
 
 function dateToolbar(key) {
@@ -356,6 +356,12 @@ function displayView(page) {
 }
 
 main.addEventListener("click", event => {
+  const day = event.target.closest("[data-chart-day]");
+  if (day) {
+    for (const bar of main.querySelectorAll("[data-chart-day]")) bar.setAttribute("aria-pressed", String(bar === day));
+    main.querySelector(".chart-reading").textContent = day.getAttribute("aria-label");
+    return;
+  }
   const control = event.target.closest("[data-view]");
   if (!control) return;
   selectedView[state.page] = control.dataset.view;
@@ -1329,6 +1335,12 @@ async function settleTicket(id) {
 }
 
 const commands = {
+  "home-tickets": () => {
+    selectedView.cash = "tickets";
+    state.ticketQuery = "";
+    state.periods.cash = {start: dayOffset(state.data.today, -6), end: state.data.today};
+    location.hash = "cash";
+  },
   "open-inventory": () => { selectedView.stock = "inventory"; state.inventoryQuery = ""; state.inventoryLevel = ""; location.hash = "stock"; },
   "whatsapp-offer": openOffer,
   "offer-contacts": () => { dialog.close(); state.contactKind = "client"; if (state.page === "contacts") render(); else location.hash = "contacts"; },
